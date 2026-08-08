@@ -67,8 +67,25 @@ def connect() -> Garmin:
         password=password,
         prompt_mfa=lambda: input("Garmin MFA code: ").strip(),
     )
-    client.login(TOKEN_STORE)
-    print(f"authenticated ({'cached tokens' if had_cache else 'password'}); cache: {TOKEN_STORE}")
+    # login() *returns* ("needs_mfa", None) rather than raising, so an
+    # unchecked call happily reports success on a login that never completed.
+    result = client.login(TOKEN_STORE)
+    if isinstance(result, tuple) and result[0]:
+        sys.exit(
+            f"Garmin login incomplete: {result[0]}. Run this from a terminal so the "
+            "MFA prompt can be answered, then re-run — tokens will be cached."
+        )
+
+    # Prove the session works rather than trusting the absence of an exception.
+    # This endpoint returns settings keyed by profile id, not a display name.
+    profile = client.get_user_profile() or {}
+    profile_id = profile.get("id")
+    if not profile_id:
+        sys.exit("Garmin session did not return a profile — treating login as failed.")
+    print(
+        f"authenticated as profile {profile_id} "
+        f"({'cached tokens' if had_cache else 'password'}); cache: {TOKEN_STORE}"
+    )
     return client
 
 
@@ -164,6 +181,9 @@ def normalize(day: dt.date, raw: dict[str, Any]) -> dict[str, Any]:
         ).get("vo2MaxValue")
     out["vo2max_running"] = vo2
 
+    # Training status and load live under a per-device map keyed by device id.
+    # Load is in acuteTrainingLoadDTO, NOT in mostRecentTrainingLoadBalance —
+    # that one holds monthly aerobic/anaerobic splits and no daily figures.
     ts = raw.get("training_status") or {}
     latest = ts.get("mostRecentTrainingStatus") or {}
     dev_map = latest.get("latestTrainingStatusData") or {}
@@ -171,23 +191,35 @@ def normalize(day: dt.date, raw: dict[str, Any]) -> dict[str, Any]:
     out["training_status"] = status_entry.get("trainingStatusFeedbackPhrase") or status_entry.get(
         "trainingStatus"
     )
-    load = ts.get("mostRecentTrainingLoadBalance") or {}
-    load_map = load.get("metricsTrainingLoadBalanceDTOMap") or {}
-    load_entry = next(iter(load_map.values()), {}) if isinstance(load_map, dict) else {}
-    out["acute_training_load"] = load_entry.get("trainingLoadAcute")
+    acute_dto = status_entry.get("acuteTrainingLoadDTO") or {}
+    out["acute_training_load"] = acute_dto.get("dailyTrainingLoadAcute")
+    out["chronic_training_load"] = acute_dto.get("dailyTrainingLoadChronic")
+    out["garmin_acwr"] = acute_dto.get("dailyAcuteChronicWorkloadRatio")
+    out["garmin_acwr_status"] = acute_dto.get("acwrStatus")
 
     tr = raw.get("training_readiness")
     tr_entry = tr[0] if isinstance(tr, list) and tr else (tr if isinstance(tr, dict) else {})
-    out["training_readiness_score"] = (tr_entry or {}).get("score")
-    out["training_readiness_level"] = (tr_entry or {}).get("level")
+    tr_entry = tr_entry or {}
+    out["training_readiness_score"] = tr_entry.get("score")
+    out["training_readiness_level"] = tr_entry.get("level")
+    out["recovery_time_seconds"] = tr_entry.get("recoveryTime")
+    out["valid_sleep"] = tr_entry.get("validSleep")
 
     bb = raw.get("body_battery")
     bb_entry = bb[0] if isinstance(bb, list) and bb else {}
-    out["body_battery_high"] = bb_entry.get("charged")
-    out["body_battery_low"] = bb_entry.get("drained")
+    out["body_battery_charged"] = bb_entry.get("charged")
+    out["body_battery_drained"] = bb_entry.get("drained")
 
+    # Garmin encodes "not worn" as -1 and "in activity" as -2 inside the
+    # stress series. Counting the real samples is what distinguishes a genuine
+    # all-day average from one computed over a handful of post-run readings.
     stress = raw.get("stress") or {}
     out["average_stress"] = stress.get("avgStressLevel")
+    series = stress.get("stressValuesArray") or []
+    out["stress_sample_count"] = sum(
+        1 for p in series if isinstance(p, list) and len(p) > 1
+        and isinstance(p[1], (int, float)) and p[1] >= 0
+    )
 
     stats = raw.get("steps") or {}
     out["steps"] = stats.get("totalSteps")
@@ -205,8 +237,10 @@ COLUMNS = [
     "hrv_last_night_avg_ms", "hrv_last_night_high_ms", "hrv_status",
     "hrv_baseline_low_upper", "hrv_baseline_balanced_low", "hrv_baseline_balanced_upper",
     "vo2max_running", "training_status", "training_readiness_score",
-    "training_readiness_level", "acute_training_load", "body_battery_high",
-    "body_battery_low", "average_stress", "steps", "raw",
+    "training_readiness_level", "recovery_time_seconds", "acute_training_load",
+    "chronic_training_load", "garmin_acwr", "garmin_acwr_status",
+    "body_battery_charged", "body_battery_drained", "average_stress", "steps",
+    "valid_sleep", "stress_sample_count", "raw",
 ]
 
 
@@ -265,12 +299,10 @@ def main() -> None:
             conn.commit()
             written += 1
 
-            filled = [
-                k for k in ("sleep_seconds", "hrv_last_night_avg_ms", "resting_hr",
-                            "vo2max_running", "training_readiness_score", "steps")
-                if row.get(k) is not None
-            ]
-            print(f"    stored; populated: {', '.join(filled) if filled else 'nothing'}")
+            tracked = [c for c in COLUMNS if c not in ("date", "source", "raw")]
+            filled = [k for k in tracked if row.get(k) is not None]
+            print(f"    stored; {len(filled)}/{len(tracked)} fields: "
+                  f"{', '.join(filled) if filled else 'nothing'}")
     finally:
         conn.close()
 

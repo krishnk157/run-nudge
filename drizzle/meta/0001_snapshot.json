@@ -1,5 +1,5 @@
 {
-  "id": "1fe048b6-cc5a-4f8e-ae57-e18382f8cbb9",
+  "id": "3d86b334-1a9a-4cf9-bcdf-0fd6f0af8a4e",
   "prevId": "84edcb7e-61ca-404b-9039-db524fb11b51",
   "version": "7",
   "dialect": "postgresql",
@@ -372,20 +372,44 @@
           "primaryKey": false,
           "notNull": false
         },
+        "recovery_time_seconds": {
+          "name": "recovery_time_seconds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "acute_training_load": {
           "name": "acute_training_load",
           "type": "double precision",
           "primaryKey": false,
           "notNull": false
         },
-        "body_battery_high": {
-          "name": "body_battery_high",
+        "chronic_training_load": {
+          "name": "chronic_training_load",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "garmin_acwr": {
+          "name": "garmin_acwr",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "garmin_acwr_status": {
+          "name": "garmin_acwr_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "body_battery_charged": {
+          "name": "body_battery_charged",
           "type": "integer",
           "primaryKey": false,
           "notNull": false
         },
-        "body_battery_low": {
-          "name": "body_battery_low",
+        "body_battery_drained": {
+          "name": "body_battery_drained",
           "type": "integer",
           "primaryKey": false,
           "notNull": false
@@ -398,6 +422,18 @@
         },
         "steps": {
           "name": "steps",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "valid_sleep": {
+          "name": "valid_sleep",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stress_sample_count": {
+          "name": "stress_sample_count",
           "type": "integer",
           "primaryKey": false,
           "notNull": false

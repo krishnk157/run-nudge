@@ -156,17 +156,36 @@ export const dailyMetrics = pgTable(
 
     vo2maxRunning: doublePrecision("vo2max_running"),
 
-    /** Garmin's own verdict: PRODUCTIVE, OVERREACHING, DETRAINING, … */
+    /** Garmin's own verdict: PRODUCTIVE_2, OVERREACHING, DETRAINING, … */
     trainingStatus: text("training_status"),
     trainingReadinessScore: integer("training_readiness_score"),
     trainingReadinessLevel: text("training_readiness_level"),
-    /** Garmin's acute (7-day) training load — a cross-check on our own computation. */
-    acuteTrainingLoad: doublePrecision("acute_training_load"),
+    recoveryTimeSeconds: integer("recovery_time_seconds"),
 
-    bodyBatteryHigh: integer("body_battery_high"),
-    bodyBatteryLow: integer("body_battery_low"),
+    // Garmin computes acute:chronic workload itself. Day 3 computes its own
+    // from Strava data — keeping Garmin's lets us check ours against a
+    // reference implementation instead of trusting it blind.
+    acuteTrainingLoad: doublePrecision("acute_training_load"),
+    chronicTrainingLoad: doublePrecision("chronic_training_load"),
+    garminAcwr: doublePrecision("garmin_acwr"),
+    garminAcwrStatus: text("garmin_acwr_status"),
+
+    // Amounts gained/spent over the day, not high/low readings — Garmin's
+    // fields are `charged` and `drained`, and naming them high/low would
+    // invite exactly the wrong interpretation downstream.
+    bodyBatteryCharged: integer("body_battery_charged"),
+    bodyBatteryDrained: integer("body_battery_drained"),
     averageStress: integer("average_stress"),
     steps: integer("steps"),
+
+    /**
+     * Wear-time quality signals. This watch is worn for runs, not overnight,
+     * so most days have no sleep or HRV at all. Recording that explicitly
+     * keeps Day 3 from mistaking "not measured" for "measured and fine".
+     */
+    validSleep: boolean("valid_sleep"),
+    /** Count of real stress samples; the rest of Garmin's array is -1 (not worn) / -2 (in activity). */
+    stressSampleCount: integer("stress_sample_count"),
 
     /** Full per-endpoint payloads, keyed by endpoint name. Same reasoning as
      * activities.raw: a schema change should cost a migration, not a re-sync. */

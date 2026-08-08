@@ -242,9 +242,7 @@ Different callers want different behavior, and conflating them is a real bug sou
 
 ### Normalized columns *and* raw JSON
 
-```ts
-raw: jsonb("raw").notNull(),
-```
+> **Correction (Day 2).** As written on Day 1 this described an intent the code did not implement. `normalizeActivity` persisted the *zod-parsed* object, and `z.object()` strips unknown keys — so `raw` held only the ~25 fields that already had columns, and had none of the schema-evolution insurance described below. Fixed in `efa66bb` by switching to `z.looseObject()`; `raw` now carries 58 fields. See [DAY-2.md](DAY-2.md) §2.
 
 Every activity is stored twice: parsed into typed columns, and as the untouched Strava payload.
 
@@ -448,7 +446,11 @@ The backfill surfaced three facts that constrain Day 3's design. Finding them no
 
 **2. There's a two-month training gap: 2026-03-15 → 2026-05-17.** This breaks acute:chronic workload ratio in a specific, predictable way. Chronic load (the 4-week baseline) decays toward zero across a layoff, so the first run back divides by nearly nothing and the ratio explodes. Untreated, the 17 May return would register as a catastrophic load spike. Day 3 needs an explicit rule — a chronic-load floor, or suppressing ACWR until the chronic window is populated.
 
-**3. `device_name` is null on every row.** Not missing data: Strava returns it on the *detail* activity endpoint, never on the *summary* endpoint the backfill uses. Relevant to Day 2's per-field source-of-truth logic — establishing which device recorded a run would cost one extra API call per activity, and `has_heartrate` is a cheaper proxy for the same question.
+**3. `device_name` is null on every row.** ~~Not missing data: Strava returns it on the *detail* activity endpoint, never on the *summary* endpoint the backfill uses.~~
+
+> **Correction (Day 2): this was wrong.** `device_name` *is* present on the summary endpoint. It read null because of the `raw`-stripping bug above — zod discarded it before storage. The same bug hid `external_id`, which turned out to carry exact Garmin provenance and made Day 2's planned timestamp+distance dedup unnecessary. Every row now has a device name (`Garmin Forerunner 265`, `Strava App`, `Samsung Galaxy Watch4`). See [DAY-2.md](DAY-2.md) §3.
+>
+> Worth noting how the error was made: I inferred a cause ("the summary endpoint omits it") that fit the evidence, rather than checking. A null column has at least two explanations — the source didn't send it, or something dropped it in transit — and I tested neither.
 
 ---
 

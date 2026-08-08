@@ -6,13 +6,14 @@ See [docs/PLAN.md](docs/PLAN.md) for the full plan and rationale.
 
 ## Status
 
-**Day 1 — ingestion foundation.** Strava OAuth, Neon Postgres schema, and a resumable full-history backfill.
+**Day 2 — Garmin daily metrics + activity provenance.** Strava OAuth and a resumable full-history backfill (Day 1), plus a Python sidecar syncing Garmin wellness data into `daily_metrics`.
 
 ## Stack
 
 - Next.js (App Router) + TypeScript
 - Neon Postgres + Drizzle ORM
 - Strava REST API v3 (OAuth 2 + webhooks)
+- Python sidecar for Garmin Connect (unofficial API) — isolated; the app never imports it
 
 ## Setup
 
@@ -58,16 +59,45 @@ npm run backfill -- --restart       # ignore the checkpoint
 
 Progress is checkpointed to `sync_state` after every page, so a rate limit or a crash costs one page rather than the whole run. Strava's default quota is 200 requests per 15 minutes; the client reads the quota headers, warns near the ceiling, and waits out a 429 instead of failing.
 
+### 6. Garmin (optional)
+
+Garmin has no official consumer API, so this uses the community `garminconnect`
+library from an isolated Python sidecar. The Next.js app never imports it — the
+two sides meet only at the `daily_metrics` table.
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+Add your Garmin Connect login to `.env` (`GARMIN_EMAIL`, `GARMIN_PASSWORD`),
+then:
+
+```bash
+.venv/bin/python scripts/garmin_sync.py --days 7
+.venv/bin/python scripts/garmin_sync.py --since 2026-05-17
+.venv/bin/python scripts/garmin_sync.py --date 2026-07-26
+```
+
+If the account has MFA, run it from a real terminal the first time so the code
+prompt can be answered. Tokens are then cached in `.garmin-tokens/` (gitignored)
+and later runs are unattended — which matters, because repeated password logins
+are what gets a Garmin account rate-limited.
+
 ## Scripts
 
-| Command               | Purpose                                      |
-| --------------------- | -------------------------------------------- |
-| `npm run dev`         | Next.js dev server                           |
-| `npm run db:generate` | Generate a migration from `src/db/schema.ts` |
-| `npm run db:migrate`  | Apply pending migrations                     |
-| `npm run db:studio`   | Drizzle Studio — browse the data             |
-| `npm run backfill`    | Pull Strava history into the DB              |
-| `npm run typecheck`   | `tsc --noEmit`                               |
+| Command                                     | Purpose                                      |
+| ------------------------------------------- | -------------------------------------------- |
+| `npm run dev`                               | Next.js dev server                           |
+| `npm run db:generate`                       | Generate a migration from `src/db/schema.ts` |
+| `npm run db:migrate`                        | Apply pending migrations                     |
+| `npm run db:studio`                         | Drizzle Studio — browse the data             |
+| `npm run backfill`                          | Pull Strava history into the DB              |
+| `npm run typecheck`                         | `tsc --noEmit`                               |
+| `.venv/bin/python scripts/garmin_sync.py`   | Pull Garmin daily metrics into the DB        |
+
+> `db:generate` prompts interactively when it can't tell a column rename from a
+> drop-and-add, so it needs a real terminal — it will crash under a piped shell.
 
 ## Layout
 
