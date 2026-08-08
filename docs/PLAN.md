@@ -204,7 +204,7 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 
 ## 4. Scope
 
-### In scope (v1, ~1 week)
+### In scope (v1, ~~~1 week~~ 8 days)
 
 - Strava OAuth + full-history backfill into `activities` table ✅ *Day 1*
 - Garmin daily metrics into `daily_metrics` table; ~~dedup/reconciliation for dual-logged activities~~ ✅ *Day 2*
@@ -240,8 +240,8 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > something the user will actually do daily.
 >
 > **Scope honesty:** nutrition is nearer a second product than a feature — three tables, a
-> vision pipeline, a confirmation flow. It warrants its own day rather than being absorbed into
-> Day 6, and the week is now ~8 days.
+> vision pipeline, a confirmation flow. It gets **its own day (§5, Day 7)** rather than being
+> absorbed into Day 6, and deploy moves to Day 8. Approved 2026-08-09.
 - Webhook receiver → async pipeline: ingest → recompute → LLM significance judgment → notification
 - Notification channel (email or Telegram) with LLM-written insight messages
 - Weekly digest (scheduled job)
@@ -396,7 +396,27 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > Charts follow the §1a metrics: cross-modal weekly load, aerobic efficiency, strength volume,
 > bodyweight, and intake as a **weekly average** rather than daily totals.
 
-### Day 7 — Deploy + polish
+### Day 7 — Nutrition + body composition
+
+> **▸ Added 2026-08-09.** New day, not a squeeze into Day 6. It sits here because meal logging
+> is conversational and therefore depends on Day 6's chat layer already existing.
+
+- `profile` (height, once), `body_log` (weight over time), `goal_phases` (bulk / cut / maintain,
+  append-only with start dates)
+- `foods`, `meals`, `meal_items`; the `foods` table is written once per new food and read
+  thereafter
+- Multimodal logging in the chat route: photo or text → structured items → **confirm and edit**
+  → save. The model emits `{item, count, grams}`; kcal and macros come from `foods` via SQL
+- Weight form on the dashboard; protein and intake panels; phase boundaries drawn on the weight
+  chart rather than smoothed across
+- **Outcome:** photograph a plate, correct a portion, save it — and the weekly protein average
+  moves. The same dish logged a week later produces the identical number, proving the
+  arithmetic lives in the database and not in the model.
+- **Risk:** confirm-before-save is right for accuracy and wrong for friction, and friction is
+  the only thing that decides whether food logging survives past week two. If it lapses, the
+  retreat is save-immediately-edit-later — not abandoning the feature.
+
+### Day 8 — Deploy + polish
 
 - Vercel deploy; re-register webhook against public URL; cron live
 - Error/empty states; README with architecture diagram telling the "chat can't do this" story
@@ -515,7 +535,7 @@ The differentiators here: push not pull (unprompted notifications), deterministi
 ## 9. Risks
 
 - **Garmin unofficial API** — undocumented, breaks periodically; fallback manual CSV or Strava-only v1
-- **Webhook testing needs public URL** — tunnel locally (Day 4), deploy re-registration (Day 7)
+- **Webhook testing needs public URL** — tunnel locally (Day 4), deploy re-registration (Day ~~7~~ 8)
 - **Notification tuning is subjective** — expect iteration on the significance prompt after living with it for a week; that iteration itself is a good story
 - **Vercel serverless limits** — long backfills may need chunking or a one-off local script rather than a serverless function
 
@@ -525,7 +545,7 @@ The differentiators here: push not pull (unprompted notifications), deterministi
 > checkpointed per page. *Garmin API breaking* — didn't happen; the risk that materialized was
 > the **wrong library**, chosen on language convenience rather than measured API surface.
 >
-> **Still open.** Webhook public URL (Day 4/7). Notification tuning — now harder than stated,
+> **Still open.** Webhook public URL (Day 4/8). Notification tuning — now harder than stated,
 > because the prompt must also handle "insufficient data" without making absence sound
 > reassuring.
 >
