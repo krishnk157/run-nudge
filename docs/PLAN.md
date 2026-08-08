@@ -48,11 +48,37 @@ No chat session can do this — it requires event-driven ingestion, persistent h
 
 1. **The system is modality-agnostic**, not running-specific. Load is computed across all
    activity types from heart rate / effort, not from distance. Running becomes one input.
-2. **Weight and calories are logged in this app's own UI**, writing straight to Postgres —
-   no dependency on another product's sync path.
-3. **Progress photos are out of scope.** Weight, strength volume and aerobic efficiency are
-   real numbers on a shorter feedback loop; LLM assessment of physique photos is unreliable
-   and would have been a feature pretending to a precision it doesn't have.
+2. **Body and nutrition data are logged in this app itself**, writing straight to Postgres —
+   no dependency on another product's sync path. Height is captured once; weight is logged
+   periodically; **meals are logged conversationally, by photo or text**.
+3. **Progress photos are out of scope; food photos are in.** The distinction is whether the
+   model is asked something it can actually do. Judging body composition from a physique photo
+   is unreliable and would claim a precision the method lacks. Identifying "two rotis, dal,
+   curd" from a plate is ordinary recognition, and — critically — its output is *checked by
+   the user before it is saved*.
+4. **No calorie target, and no dietary advice.** The system logs intake and shows it beside the
+   weight trend. It does not compute a goal number, prescribe a deficit, or comment on what was
+   eaten. This keeps §4's "no coaching plans, no medical advice" exclusion intact rather than
+   quietly eroding it.
+5. **Goal phases are dated state, not a setting.** The athlete alternates between bulking,
+   cutting and maintaining, with **high protein constant across all of them** (stated
+   2026-08-09). A `goal_phases` table records each phase with a start date; phases are appended,
+   never overwritten.
+
+> **▸ Why phases are the same problem as intermittent wear.**
+> A bodyweight trend spanning a bulk and a cut is meaningless as a single slope — it averages
+> two opposite intentions into a number describing neither. That is precisely the resting-HR
+> confound again: **a series is only interpretable within one regime.** So weight is read
+> against the phase in force at the time, and phase boundaries are drawn on the chart rather
+> than smoothed over.
+>
+> This also makes the same observation mean different things without the system giving advice:
+> gaining 1 kg during a declared bulk is on plan; gaining 1 kg during a declared cut is worth
+> mentioning. The phase supplies the interpretation, so the system reports rather than
+> prescribes.
+>
+> **Protein is phase-independent**, so it is a first-class tracked metric with its own readout
+> — the one dietary quantity constant across every phase.
 
 > **On the name.** "RunNudge" is now slightly inaccurate — it's a training system, not a
 > running one. Cosmetic, and per §3a the rule here is that descriptions must be honest, so the
@@ -137,6 +163,31 @@ No chat session can do this — it requires event-driven ingestion, persistent h
 > | Load metric | Heart-rate / effort based, cross-modal | Distance measures one modality out of several. 12 h of gym vs 9.3 h of running makes a mileage-based load actively misleading, not merely incomplete. |
 > | Body metrics | Manual entry in this app's own UI → Postgres | Garmin can store weigh-ins and nutrition, but only if food is logged in a third app that syncs. Owning the entry path removes a dependency whose failure mode is silent gaps. |
 > | Progress photos | Out of scope | An LLM judging body composition from photos is unreliable. Shipping it would mean claiming a precision the method doesn't have — the same error as reporting confounded resting HR as a measurement. |
+> | Meal logging | Conversational — photo or text, in the chat layer | The lowest-friction entry path that exists, and friction is the only thing that determines whether food logging survives past week two. |
+
+> **▸ Added after §1a — the LLM's role, restated precisely.**
+> §3 above says *"numbers are never left to the LLM to calculate."* Meal logging looks like a
+> violation. It isn't, once the two halves are separated:
+>
+> | Step | Who does it | Why |
+> | --- | --- | --- |
+> | *What food is this, roughly what portion?* | **LLM (vision or text)** | Perception, not arithmetic. Nothing else can do it. |
+> | *kcal and macros for that portion* | **`foods` table lookup** | Deterministic. Same input, same answer, every time. |
+> | *Daily and weekly totals* | **SQL** | Arithmetic stays in the database. |
+>
+> So the model emits `{ item: "roti", count: 2, grams_each: 40 }` and never multiplies anything.
+> The original principle is not weakened — it is stated more precisely: **the LLM may perceive
+> and judge; it may not compute.**
+>
+> **The `foods` table learns.** The first time a food appears, the model estimates its per-100g
+> values once, the user confirms, and it is stored. Subsequent meals are lookups. This matters
+> for two reasons: re-asking a model the same question yields a different answer each time, so
+> repeat meals would drift; and public nutrition databases (USDA, Open Food Facts) are thin on
+> Indian food, which is most of what will be logged here.
+>
+> **Two honesty constraints.** Portion estimates from photos carry large error bars, so every
+> quantity is **editable before saving** and the UI leads with the **weekly average** — the trend
+> survives estimation noise, a single day does not. And an unconfirmed estimate is never counted.
 
 ## 3a. Naming and terminology (deliberate)
 
@@ -172,15 +223,25 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > - **Strength session detail** — pull Garmin's per-set data (`get_activity_exercise_sets`)
 >   into a `strength_sets` table. Strava stores only a duration for a gym session, so without
 >   this, 4–5 of 5–6 weekly sessions are opaque to the analysis engine.
-> - **Body metrics table + logging UI** — weight and calories, manually entered, plus a small
->   form on the dashboard. The only user-input write path in the system; everything else is
+> - **Body metrics** — `profile` (height, captured once), `body_log` (weight over time) and
+>   `goal_phases` (bulk / cut / maintain, with start dates), entered through the dashboard.
+> - **Conversational meal logging** — `foods`, `meals` and `meal_items` tables, plus a
+>   multimodal path in the chat layer: photo or text → identified items → confirm → save.
+>   Together with weight, the only user-input write paths in the system; everything else is
 >   ingested.
 > - **Monthly trend reporting** — a longer cadence than the weekly digest, because VO2max,
 >   aerobic efficiency and bodyweight only become legible over months.
 >
-> **Explicitly out:** progress photos, and any multimodal body-composition assessment.
-> This also retires the §4 stretch item "multimodal route-image queries" as a distraction from
-> goals it doesn't serve.
+> **Explicitly out:** progress photos and any body-composition assessment from images; calorie
+> targets; anything resembling dietary advice.
+>
+> **Multimodal is back, for a better reason.** The stretch item "multimodal route-image queries"
+> is retired — it served no stated goal. Food photos replace it: the same capability, pointed at
+> something the user will actually do daily.
+>
+> **Scope honesty:** nutrition is nearer a second product than a feature — three tables, a
+> vision pipeline, a confirmation flow. It warrants its own day rather than being absorbed into
+> Day 6, and the week is now ~8 days.
 - Webhook receiver → async pipeline: ingest → recompute → LLM significance judgment → notification
 - Notification channel (email or Telegram) with LLM-written insight messages
 - Weekly digest (scheduled job)
@@ -321,14 +382,19 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > Charts must also not interpolate across gaps. A pace line that draws straight through a
 > two-month layoff is asserting training that didn't happen.
 
-> **▸ Added after §1a — the dashboard gains a write path.**
-> A **weight and calorie logging form**, the only place a user writes data rather than the
-> system ingesting it. Design it for the failure mode that actually kills manual logging:
-> forgetting. Default to today, one tap to submit, show the trend immediately so the entry
-> visibly earns its keep.
+> **▸ Added after §1a — the dashboard gains write paths, and chat gains a job.**
+>
+> **Weight** gets a small form: defaults to today, one tap to submit, trend shown immediately so
+> the entry visibly earns its keep. Design for the failure mode that actually kills manual
+> logging — forgetting — not for data richness.
+>
+> **Meals are logged in the chat layer**, not a form. Photo or text in, identified items back,
+> edit the portions, save. This makes the chat surface load-bearing rather than secondary, which
+> is a change from §2's original framing: chat is now the primary *input* path for nutrition
+> while remaining secondary for questions.
 >
 > Charts follow the §1a metrics: cross-modal weekly load, aerobic efficiency, strength volume,
-> bodyweight — not just pace and mileage.
+> bodyweight, and intake as a **weekly average** rather than daily totals.
 
 ### Day 7 — Deploy + polish
 
@@ -359,6 +425,7 @@ Deliberately, in VS Code + Claude — every layer understood and owned, not gene
 - **Event-driven architecture:** webhook receiver → validation → async pipeline → downstream actions
 - **LLM system design:** LLM as judgment layer over deterministic computation — deciding significance and communicating, never calculating; a defensible answer to "where should the LLM be in the loop?"
 - **LLM tool-calling / orchestration:** multi-tool chat layer (SQL + chart tools), Vercel AI SDK
+- **Multimodal structured extraction:** food photo → typed items → deterministic nutrition lookup, with a human confirmation step before anything is persisted
 - **API integration:** OAuth token lifecycle, rate-limit-aware backfill, ~~two-source reconciliation/dedup~~ provenance-based deduplication
 - **Scheduled + reactive workloads:** cron digests + webhook-triggered processing on serverless
 - **Product judgment:** notification-fatigue tuning — knowing when an AI system should stay quiet
@@ -439,6 +506,11 @@ The differentiators here: push not pull (unprompted notifications), deterministi
 > - **Strength volume tracked per session and per lift**, from Garmin's exercise sets.
 > - **Manual logging survives a missed day** — a gap in weight entries degrades the trend
 >   without breaking it, and is shown as a gap rather than interpolated.
+> - **A meal photo becomes a saved, checked record** — items identified, portions edited,
+>   totals computed by SQL from the `foods` table rather than asserted by the model.
+> - **Repeat meals give repeat numbers** — the same dish logged twice a week apart produces
+>   identical kcal, proving the `foods` table is doing the arithmetic and not the model.
+> - **Nothing unconfirmed is ever counted** toward a daily or weekly total.
 
 ## 9. Risks
 
