@@ -209,7 +209,13 @@ Sleep and HRV exist on **11 of 85 days, all between 18 May and 14 June.** Overni
 
 Worse for the feature: `hrv_status` is `NONE` on all 12 days that have it. Garmin's HRV *status* — the interpretable signal, the one that says BALANCED or UNBALANCED relative to your personal baseline — requires roughly three weeks of consistent overnight wear to establish a baseline. **That baseline was never established.** So the useful HRV signal doesn't exist at all; only raw millisecond values with nothing to compare them against.
 
-**Consequence:** recovery-aware insights cannot be built on sleep or HRV. Not "will be sparse" — cannot. This should be cut from the plan or explicitly deferred behind a wear-dependent gate, not implemented against 13% coverage and no baseline.
+**Consequence:** recovery-aware insights cannot be built on sleep or HRV *today*. Not "will be sparse" — cannot, against 13% coverage and no baseline.
+
+> **Decision (revised after discussion).** My first recommendation was to cut the feature. That was wrong in kind. Wear is intermittent *by nature here* — there will be tracking phases and non-tracking phases indefinitely — so the feature should be **gated on data sufficiency, not removed**.
+>
+> The difference matters: a gated rule self-enables. Wear the watch consistently for ~3 weeks, Garmin establishes the HRV baseline that is currently `NONE`, the rule's precondition starts passing, and the insight starts firing — no code change and nothing to remember to switch on. A cut feature stays cut.
+>
+> This generalizes past Garmin: **data availability is a first-class input to the analysis engine, not an assumption it gets to make.** See §11.
 
 ### Finding 2 — resting HR is confounded by wear, and it looks fine
 
@@ -302,14 +308,26 @@ This is only cheap because the data is re-derivable: `daily_metrics` re-syncs fr
 
 ## 11. What this means for Day 3
 
-The plan's Day 3 is the analysis engine. Today's findings change its inputs:
+The plan's Day 3 is the analysis engine. Today's findings change its inputs, and one architectural requirement now precedes all of them.
 
-1. **Cut or gate recovery insights.** Sleep/HRV: 13%, no baseline, none after 14 June.
+### Capability gating (the architectural consequence)
+
+Intermittent wear is permanent, so the engine cannot assume its inputs exist. Three requirements follow:
+
+**1. Every rule declares its data requirements.** A rule is a computation *plus a precondition* — "HR-above-baseline-at-same-pace" needs ≥N runs with HR in the trailing window; a sleep-debt flag needs ≥N valid nights. The engine evaluates which rules are *eligible* for a given day and runs only those. Eligibility is data-driven, so rules switch themselves on when wear resumes.
+
+**2. Baselines are regime-aware.** The sharpest edge in today's data: resting HR is 58.8 worn / 68.5 unworn. A baseline averaging across both would read a return to consistent wear as a ~10 bpm *fitness improvement* that is purely a measurement artifact. Baselines must filter to a single regime (`valid_sleep = true`) or reset when the regime changes — and warm up again after any gap, or the first day back sets a bogus reference.
+
+**3. Silence needs two distinct meanings.** PLAN §Day 4's bar is "quiet unless it matters." Intermittent data adds a second reason for silence: *we don't know*. Conflating them is the RHR confound one layer up — absence of signal presented as evidence of normality. Notifications and dashboard must keep "you're fine" distinguishable from "watch wasn't worn."
+
+### Concrete inputs
+
+1. **Gate recovery insights** rather than cutting them. Sleep/HRV: 13%, no baseline, none after 14 June.
 2. **Gate resting HR on `valid_sleep`.** Otherwise the baseline tracks wear habits.
 3. **HR-based pace anomalies stay thin** — 5 runs with HR (Day 1 §11), unchanged.
 4. **ACWR needs a layoff rule.** Garmin's 4.8 / VERY_HIGH / readiness 1 on 5 July is the concrete failure case to design against.
 5. **Validate our ACWR against `garmin_acwr`** on the 72 days that have both.
 
-The honest summary: **Garmin contributed less recovery context than the plan assumed, and more validation data than it expected.**
+The honest summary: **Garmin contributed less recovery context than the plan assumed, and more validation data than it expected — and forced a better architecture than the plan specified.**
 
 **Commits:** `efa66bb` (raw fix), `7c26da2` (sidecar + provenance), `53cc0be` (metrics live + mapping fixes) on `day1-ingestion-foundation`.
