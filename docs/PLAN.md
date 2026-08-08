@@ -22,6 +22,42 @@ Claude with Strava/Garmin MCPs answers questions when asked. This project invert
 
 No chat session can do this — it requires event-driven ingestion, persistent history, derived-state computation (training load, trends), and an outbound notification channel. That's the honest answer to "couldn't you just use the MCP?": a chat can retrieve; it cannot watch, accumulate, and initiate.
 
+## 1a. Training context and goals
+
+> **▸ Added after Day 2 (2026-08-09).** The plan was written as a *running* insights system.
+> The actual training it has to serve is mostly not running, which changes what the analysis
+> engine computes — though not the architecture.
+
+**The athlete's training and goals, as stated:**
+
+- 4–5 gym sessions per week (strength), tracked in Garmin's free strength-training mode
+- Occasional weekend 5k runs
+- **Goals:** improve VO2max and running pace
+- Willing to log weight and calories
+
+**What the data said when checked against that:**
+
+| Fact | Consequence |
+|---|---|
+| Gym: **12.0 h** in 3 weeks vs running **9.3 h across 6 months** | Mileage-based load ignores most of the training |
+| Running ≈ **1 × 5k per week** | ACWR over running alone is dominated by single sessions — this is how Garmin produced 4.8 VERY_HIGH from one 10k |
+| VO2max **40.3 → 38.1** (May → Jul) | Trending *against* the stated goal; nothing in the original plan would have surfaced it |
+| Runs average **183 bpm at ~7:20/km** | High cardiac cost for the pace — the quantity that maps to the goal is aerobic efficiency, not raw pace |
+
+**Decisions taken (2026-08-09):**
+
+1. **The system is modality-agnostic**, not running-specific. Load is computed across all
+   activity types from heart rate / effort, not from distance. Running becomes one input.
+2. **Weight and calories are logged in this app's own UI**, writing straight to Postgres —
+   no dependency on another product's sync path.
+3. **Progress photos are out of scope.** Weight, strength volume and aerobic efficiency are
+   real numbers on a shorter feedback loop; LLM assessment of physique photos is unreliable
+   and would have been a feature pretending to a precision it doesn't have.
+
+> **On the name.** "RunNudge" is now slightly inaccurate — it's a training system, not a
+> running one. Cosmetic, and per §3a the rule here is that descriptions must be honest, so the
+> README should say "training" even while the repo keeps its name.
+
 ## 2. What It Does
 
 **Proactive (core):**
@@ -42,6 +78,26 @@ No chat session can do this — it requires event-driven ingestion, persistent h
 > when wear resumes, with no code change. A third state is added alongside notify / stay-quiet —
 > **"insufficient data"** — because silence that means *we don't know* must never be
 > indistinguishable from silence that means *you're fine*. See [DAY-2.md](DAY-2.md) §7, §11.
+
+> **▸ Revised after §1a — insight types, restated for the actual training mix.**
+> "load spikes, pace/HR anomalies" assumed a runner. The set that serves the stated goals:
+>
+> - **Cross-modal load** — weekly training load across gym *and* runs, from HR/effort rather
+>   than distance. At ~5 km/week, mileage is not a load measure.
+> - **Aerobic efficiency trend** — pace at a given heart rate over months. This is the
+>   quantity that actually tracks "improve VO2max and pace"; raw pace confounds effort with
+>   fitness, and Garmin's VO2max estimate updates only after qualifying runs (5 values in
+>   3 months).
+> - **Strength progression** — volume (sets × reps × weight) and per-lift bests, from Garmin's
+>   exercise-set data. Strava records only a duration for these sessions.
+> - **Bodyweight trend** — from the app's own log, on a monthly rather than per-session cadence.
+> - **Consistency and streaks** — already in the list, and the most actionable signal for
+>   someone whose gym block stopped on 5 June.
+>
+> **Timescale note:** these goals resolve over *months*, but the proactive pipeline reacts per
+> activity. Per-run reactions cannot report a VO2max trend without becoming noise. So the
+> monthly cadence is a first-class reporting tier alongside the weekly digest — not an
+> afterthought.
 
 **On-demand (secondary):**
 
@@ -74,6 +130,14 @@ No chat session can do this — it requires event-driven ingestion, persistent h
 > the validator already knows about — which defeats the entire purpose of keeping raw payloads.
 > See [DAY-2.md](DAY-2.md) §2, §4.
 
+> **▸ Added after §1a — three more decisions.**
+>
+> | Decision | Choice | Why |
+> | --- | --- | --- |
+> | Load metric | Heart-rate / effort based, cross-modal | Distance measures one modality out of several. 12 h of gym vs 9.3 h of running makes a mileage-based load actively misleading, not merely incomplete. |
+> | Body metrics | Manual entry in this app's own UI → Postgres | Garmin can store weigh-ins and nutrition, but only if food is logged in a third app that syncs. Owning the entry path removes a dependency whose failure mode is silent gaps. |
+> | Progress photos | Out of scope | An LLM judging body composition from photos is unreliable. Shipping it would mean claiming a precision the method doesn't have — the same error as reporting confounded resting HR as a measurement. |
+
 ## 3a. Naming and terminology (deliberate)
 
 The project is **not** described as an "AI agent." The proactive pipeline is event-driven automation with a single LLM judgment step, not an autonomous multi-step loop. The chat layer's tool-calling is genuinely agentic in the modest sense, but that doesn't make the whole system an agent.
@@ -102,6 +166,21 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > watch was worn and 68.5 when it wasn't — present, numeric, and wrong in a way no null check
 > catches. A baseline spanning both regimes would read a return to consistent wear as a
 > ~10 bpm fitness gain that is purely a measurement artifact.
+
+> **▸ Added after §1a — three items now in scope for v1.**
+>
+> - **Strength session detail** — pull Garmin's per-set data (`get_activity_exercise_sets`)
+>   into a `strength_sets` table. Strava stores only a duration for a gym session, so without
+>   this, 4–5 of 5–6 weekly sessions are opaque to the analysis engine.
+> - **Body metrics table + logging UI** — weight and calories, manually entered, plus a small
+>   form on the dashboard. The only user-input write path in the system; everything else is
+>   ingested.
+> - **Monthly trend reporting** — a longer cadence than the weekly digest, because VO2max,
+>   aerobic efficiency and bodyweight only become legible over months.
+>
+> **Explicitly out:** progress photos, and any multimodal body-composition assessment.
+> This also retires the §4 stretch item "multimodal route-image queries" as a distraction from
+> goals it doesn't serve.
 - Webhook receiver → async pipeline: ingest → recompute → LLM significance judgment → notification
 - Notification channel (email or Telegram) with LLM-written insight messages
 - Weekly digest (scheduled job)
@@ -182,6 +261,24 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > Also carried forward: only **5 of 14 runs have heart-rate data**, so HR-based rules stay
 > gated for now regardless of Garmin wear.
 
+> **▸ Revised again after §1a — what Day 3 actually computes.**
+> "Weekly mileage aggregates" and "rolling pace/HR baselines per run type" describe a running
+> system. Replaced by:
+>
+> 1. **Cross-modal weekly load** from HR/effort across every activity type — the primary load
+>    series, with mileage demoted to a running-specific detail.
+> 2. **Aerobic efficiency** — pace at a reference heart rate per run, trended. The headline
+>    metric for the stated goals, and computable on all 5 HR-bearing runs today.
+> 3. **Strength volume and per-lift bests** from `strength_sets`.
+> 4. **Consistency tracking** across modalities — sessions per week vs a trailing baseline.
+>    The 5 June gym stop and the Mar–May running layoff are both in the historical data and
+>    make good test cases.
+>
+> Note the sanity-check step matters more here than it did for running: cross-modal load
+> means choosing how a 90-minute gym session at 127 bpm compares to a 37-minute run at 183 bpm.
+> That weighting is a judgment call, and Garmin's own acute load on the same days is the
+> reference to calibrate it against.
+
 ### Day 4 — Event pipeline + LLM judgment
 
 - Strava webhook subscription; receiver route with validation; async processing (fetch → normalize → ~~dedup~~ → recompute)
@@ -223,6 +320,15 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 >
 > Charts must also not interpolate across gaps. A pace line that draws straight through a
 > two-month layoff is asserting training that didn't happen.
+
+> **▸ Added after §1a — the dashboard gains a write path.**
+> A **weight and calorie logging form**, the only place a user writes data rather than the
+> system ingesting it. Design it for the failure mode that actually kills manual logging:
+> forgetting. Default to today, one tap to submit, show the trend immediately so the entry
+> visibly earns its keep.
+>
+> Charts follow the §1a metrics: cross-modal weekly load, aerobic efficiency, strength volume,
+> bodyweight — not just pace and mileage.
 
 ### Day 7 — Deploy + polish
 
@@ -323,6 +429,16 @@ The differentiators here: push not pull (unprompted notifications), deterministi
 >   shift materially, proving it tracks the athlete rather than the measurement regime.
 > - **ACWR agreement** — our computed ratio is compared against `garmin_acwr` on the 72
 >   overlapping days, with disagreements explained rather than averaged away.
+
+> **▸ Added after §1a — criteria tied to the stated goals.**
+>
+> - **Cross-modal load is not runnable-only** — a week of 4 gym sessions and no run produces a
+>   non-trivial load figure. Under the original mileage-based design it would have read zero.
+> - **Aerobic efficiency is computed and trended** on every HR-bearing run, and the VO2max
+>   decline from 40.3 to 38.1 is visible in the system rather than something I found by hand.
+> - **Strength volume tracked per session and per lift**, from Garmin's exercise sets.
+> - **Manual logging survives a missed day** — a gap in weight entries degrades the trend
+>   without breaking it, and is shown as a gap rather than interpolated.
 
 ## 9. Risks
 
