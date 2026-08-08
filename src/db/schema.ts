@@ -1,6 +1,7 @@
 import {
   bigint,
   boolean,
+  date,
   doublePrecision,
   index,
   integer,
@@ -81,6 +82,24 @@ export const activities = pgTable(
     isRace: boolean("is_race").notNull().default(false),
     gearId: text("gear_id"),
 
+    // Provenance. Strava's external_id encodes how the activity reached
+    // Strava: "garmin_ping_<garminActivityId>" for a watch auto-push, a
+    // UUID-ish ".fit" name for a file upload. Because the watch pushes
+    // straight to Strava, this is an exact link rather than the
+    // timestamp+distance heuristic the plan anticipated — there is no
+    // dual-logging to reconcile.
+    externalId: text("external_id"),
+    /**
+     * The recording device, per Strava. This and `uploadSource` answer
+     * different questions: a Samsung Galaxy Watch4 recording arrives as a file
+     * upload, so the upload path alone would wrongly imply "phone".
+     */
+    deviceName: text("device_name"),
+    /** How it reached Strava, from externalId: 'garmin' | 'file_upload' | 'other'. */
+    uploadSource: text("upload_source"),
+    /** Garmin's own activity id, parsed out of a garmin_ping external_id. */
+    garminActivityId: bigint("garmin_activity_id", { mode: "number" }),
+
     raw: jsonb("raw").notNull(),
     ingestedAt: timestamp("ingested_at", { withTimezone: true })
       .notNull()
@@ -94,6 +113,89 @@ export const activities = pgTable(
     index("activities_athlete_started_idx").on(t.athleteId, t.startedAt),
     index("activities_sport_type_idx").on(t.sportType),
   ],
+);
+
+/**
+ * One row per calendar day of Garmin wellness data — the recovery context
+ * Strava has no equivalent of (sleep, HRV, VO2max, training readiness).
+ *
+ * Keyed by date rather than by an activity: these are whole-day measurements,
+ * and they exist for rest days too. That's the point — a rest day with poor
+ * sleep and suppressed HRV is exactly the context that should temper what the
+ * system says about the next hard run.
+ *
+ * Every column is nullable. Garmin returns nothing for days the watch wasn't
+ * worn, and a day with only step data is normal, not an error.
+ */
+export const dailyMetrics = pgTable(
+  "daily_metrics",
+  {
+    /** Calendar date in the athlete's local timezone, as Garmin reports it. */
+    date: date("date").primaryKey(),
+    source: text("source").notNull().default("garmin"),
+
+    // Sleep — durations in seconds to match the activity columns' SI convention.
+    sleepSeconds: integer("sleep_seconds"),
+    deepSleepSeconds: integer("deep_sleep_seconds"),
+    lightSleepSeconds: integer("light_sleep_seconds"),
+    remSleepSeconds: integer("rem_sleep_seconds"),
+    awakeSeconds: integer("awake_seconds"),
+    sleepScore: integer("sleep_score"),
+
+    restingHr: integer("resting_hr"),
+
+    // HRV. `hrvStatus` is Garmin's own classification (BALANCED / UNBALANCED /
+    // LOW / POOR) — it already accounts for personal baseline, so it's more
+    // useful than the raw ms value on its own.
+    hrvLastNightAvgMs: integer("hrv_last_night_avg_ms"),
+    hrvLastNightHighMs: integer("hrv_last_night_high_ms"),
+    hrvStatus: text("hrv_status"),
+    hrvBaselineLowUpper: integer("hrv_baseline_low_upper"),
+    hrvBaselineBalancedLow: integer("hrv_baseline_balanced_low"),
+    hrvBaselineBalancedUpper: integer("hrv_baseline_balanced_upper"),
+
+    vo2maxRunning: doublePrecision("vo2max_running"),
+
+    /** Garmin's own verdict: PRODUCTIVE_2, OVERREACHING, DETRAINING, … */
+    trainingStatus: text("training_status"),
+    trainingReadinessScore: integer("training_readiness_score"),
+    trainingReadinessLevel: text("training_readiness_level"),
+    recoveryTimeSeconds: integer("recovery_time_seconds"),
+
+    // Garmin computes acute:chronic workload itself. Day 3 computes its own
+    // from Strava data — keeping Garmin's lets us check ours against a
+    // reference implementation instead of trusting it blind.
+    acuteTrainingLoad: doublePrecision("acute_training_load"),
+    chronicTrainingLoad: doublePrecision("chronic_training_load"),
+    garminAcwr: doublePrecision("garmin_acwr"),
+    garminAcwrStatus: text("garmin_acwr_status"),
+
+    // Amounts gained/spent over the day, not high/low readings — Garmin's
+    // fields are `charged` and `drained`, and naming them high/low would
+    // invite exactly the wrong interpretation downstream.
+    bodyBatteryCharged: integer("body_battery_charged"),
+    bodyBatteryDrained: integer("body_battery_drained"),
+    averageStress: integer("average_stress"),
+    steps: integer("steps"),
+
+    /**
+     * Wear-time quality signals. This watch is worn for runs, not overnight,
+     * so most days have no sleep or HRV at all. Recording that explicitly
+     * keeps Day 3 from mistaking "not measured" for "measured and fine".
+     */
+    validSleep: boolean("valid_sleep"),
+    /** Count of real stress samples; the rest of Garmin's array is -1 (not worn) / -2 (in activity). */
+    stressSampleCount: integer("stress_sample_count"),
+
+    /** Full per-endpoint payloads, keyed by endpoint name. Same reasoning as
+     * activities.raw: a schema change should cost a migration, not a re-sync. */
+    raw: jsonb("raw").notNull(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  // No index on `date` — it is the primary key, which Postgres already backs
+  // with a unique index. A second one would be pure write overhead.
 );
 
 /**
@@ -111,3 +213,4 @@ export const syncState = pgTable("sync_state", {
 export type Activity = typeof activities.$inferSelect;
 export type NewActivity = typeof activities.$inferInsert;
 export type StravaToken = typeof stravaTokens.$inferSelect;
+export type DailyMetric = typeof dailyMetrics.$inferSelect;

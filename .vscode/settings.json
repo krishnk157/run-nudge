@@ -25,5 +25,6 @@
     "titleBar.inactiveBackground": "#da775699",
     "titleBar.inactiveForeground": "#15202b99"
   },
-  "peacock.color": "#da7756"
+  "peacock.color": "#da7756",
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python"
 }

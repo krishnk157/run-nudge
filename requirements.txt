@@ -1,0 +1,5 @@
+# Garmin sidecar only. The Next.js app never imports any of this — the two
+# sides meet exclusively at the daily_metrics table in Postgres.
+garminconnect==0.3.9
+psycopg2-binary==2.9.12
+python-dotenv==1.2.2

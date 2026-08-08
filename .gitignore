@@ -42,3 +42,8 @@ next-env.d.ts
 
 # keep the example env file tracked
 !.env.example
+
+# python sidecar
+.venv/
+__pycache__/
+.garmin-tokens/

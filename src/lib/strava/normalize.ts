@@ -22,7 +22,45 @@ function parseTimezone(tz: string | null | undefined): string | null {
   return (match?.[1] ?? tz).trim();
 }
 
+export type UploadSource = "garmin" | "file_upload" | "other";
+
+/**
+ * Strava's `external_id` describes how an activity *reached Strava*, not what
+ * recorded it. A watch that auto-syncs produces "garmin_ping_<garminActivityId>";
+ * anything uploaded as a file produces a UUID-ish "<uuid>-activity.fit"
+ * (sometimes "stripped_" prefixed).
+ *
+ * Those are different questions, and conflating them is wrong: a Samsung
+ * Galaxy Watch4 recording arrives as a file upload, so "file_upload" would
+ * wrongly imply a phone recorded it. `device_name` answers what recorded it.
+ *
+ * The Garmin branch is what makes dedup exact rather than heuristic: because
+ * the watch pushes directly to Strava, one run yields one Strava activity
+ * carrying its own Garmin id — there is no second copy to match on timestamp
+ * and distance.
+ */
+export function parseProvenance(externalId: string | null | undefined): {
+  uploadSource: UploadSource;
+  garminActivityId: number | null;
+} {
+  if (!externalId) return { uploadSource: "other", garminActivityId: null };
+
+  const garmin = externalId.match(/^garmin_(?:ping|push)_(\d+)$/);
+  if (garmin) {
+    return {
+      uploadSource: "garmin",
+      garminActivityId: Number(garmin[1]),
+    };
+  }
+  if (/-activity\.fit$/.test(externalId)) {
+    return { uploadSource: "file_upload", garminActivityId: null };
+  }
+  return { uploadSource: "other", garminActivityId: null };
+}
+
 export function normalizeActivity(a: SummaryActivity): NewActivity {
+  const externalId = (a as { external_id?: string | null }).external_id ?? null;
+  const { uploadSource, garminActivityId } = parseProvenance(externalId);
   return {
     id: a.id,
     athleteId: a.athlete.id,
@@ -57,6 +95,11 @@ export function normalizeActivity(a: SummaryActivity): NewActivity {
     isManual: a.manual ?? false,
     isRace: a.workout_type === RUN_WORKOUT_TYPE_RACE,
     gearId: a.gear_id ?? null,
+
+    externalId,
+    deviceName: (a as { device_name?: string | null }).device_name ?? null,
+    uploadSource,
+    garminActivityId,
 
     raw: a as unknown as Record<string, unknown>,
     updatedAt: new Date(),
