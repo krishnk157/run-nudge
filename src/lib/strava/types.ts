@@ -24,10 +24,16 @@ export type TokenResponse = z.infer<typeof tokenResponseSchema>;
 
 /**
  * The subset of Strava's SummaryActivity we normalize into columns. Everything
- * else survives in `activities.raw`, so this stays permissive: unknown keys pass
- * through and anything Strava omits for a given activity stays nullish.
+ * else survives in `activities.raw`, so this stays permissive: anything Strava
+ * omits for a given activity stays nullish.
+ *
+ * `looseObject`, NOT `object`, and this is load-bearing — do not "tighten" it.
+ * A plain z.object() strips unknown keys, and since the parsed value is what
+ * lands in `activities.raw`, stripping would reduce that column to the fields
+ * we already have columns for and destroy its entire purpose (keeping a
+ * schema change from costing a re-backfill).
  */
-export const summaryActivitySchema = z.object({
+export const summaryActivitySchema = z.looseObject({
   id: z.number(),
   athlete: z.object({ id: z.number() }),
   name: z.string(),
