@@ -200,7 +200,34 @@ each labelled **METHOD** (a fact about the metric) or **PREFERENCE** (how quiet 
 want the system). Defending a preference as though it were a measurement is its
 own kind of dishonesty, so the distinction is in the type, not the commentary.
 
-### Results — 4 plateau, 3 cliff, 3 inert
+### Both trigger paths, or the answer is wrong
+
+The engine runs on two paths and they execute different branches: an **activity**
+trigger (an upload arrived) and a **scheduled** trigger (a cron tick with no
+activity). The first version of this sweep replayed only activity points, and so
+reported `stalledDays`, `acwrLow` and `restingHrDeltaBpm` as INERT.
+
+They weren't robust — they were **never executed**. The stalled/idle branches only
+run on the scheduled path. Adding 199 daily cron ticks took the sweep from
+3 inert to **0 inert**, and two of those three turned out to be cliffs.
+
+*An untested threshold is indistinguishable from a stable one if you only count
+outcomes.* That is the same failure this project keeps finding, this time inside
+the tool built to find it.
+
+### The denominator was measuring the wrong thing
+
+With both cohorts running, `minRestingBaselineNights` came back CLIFF on the
+activity path (3 flips / 28 activities = 11%) and PLATEAU on the scheduled path
+(3 flips / 199 ticks = 2%) — *the same three flips*. The verdict was tracking how
+many points I happened to sample, not stability.
+
+The denominator has to be **the decisions the threshold actually governs**: the
+points whose status changes anywhere in the sweep. Everything else is decided by
+other conditions and only dilutes the measure. With that fix both cohorts agree,
+and the results get considerably less comfortable.
+
+### Results — 5 plateau, 5 cliff, 0 inert
 
 **The density guard holds.** The threshold I was least sure of turns out to be the
 most robust:
@@ -234,32 +261,54 @@ It is a preference, and the honest handling is to expose it rather than defend i
 — though it isn't arbitrary: 1.5 is the conventional boundary in the ACWR
 literature, which is exactly the kind of external argument a cliff demands.
 
-`minChronicWeeks = 3` and `minRestingBaselineNights = 5` are cliffs for a duller
-reason: with 28 activities and 11 worn nights, almost any threshold is a cliff.
-They may well flatten on more data. Recording them as unresolved is the point.
+The other four cliffs, measured against the decisions each governs:
 
-**Three inert — and two are a flaw in the test, not a property of the threshold:**
+```
+  minChronicWeeks           2 of 6    (33%)  [activity]
+  acwrLow                   1 of 3    (33%)  [scheduled]
+  stalledDays               6 of 17   (35%)  [scheduled]
+  minRestingBaselineNights  3 of 4    (75%)  [activity]
+```
 
-`stalledDays` never changes anything because it only applies when the engine runs
-on a *schedule* (`activityId == null`), and the sweep only replays activity-triggered
-points. `restingHrDeltaBpm` is inert because its rule is ineligible on 27 of 28
-activities, so the comparison it guards almost never runs.
+That last one is effectively *the threshold is the decision*.
 
-That distinction matters more than the verdicts. **An untested threshold looks
-identical to a robust one if you only count outcomes** — which is the same failure
-this project keeps finding, now inside the tool built to find it.
+### The honest conclusion
 
-### A bug in the sweep itself
+Half the thresholds are cliffs, and the reason is not that they were chosen
+badly — it is that **each governs only a handful of decisions in this dataset.**
+28 activities, 11 worn nights, one dense training block. With four governed
+decisions, no threshold can be shown to be stable; the sweep is reporting
+sample size as much as sensitivity.
 
-The first version measured span on `fired` counts alone and declared
-`minRestingBaselineNights` inert while its churn column plainly showed three
-decisions moving between `quiet` and `ineligible`. Verdicts now use total churn
-across all four statuses.
+So the honest position is:
 
-Worth noting the pattern: the instrument built to check the engine needed
-checking, and what caught it was a column that contradicted the verdict printed
-beside it. Print the evidence next to the conclusion and disagreements become
-visible.
+- `minChronicSessions = 8` is **validated** — a genuine plateau, 7 through 10, on
+  the parameter that does the most work.
+- The other nine are **choices made explicit**, not choices justified. They live
+  in `AnalysisConfig`, labelled METHOD or PREFERENCE, and are swept on every run
+  so it stays visible which is which.
+- The sweep should be re-run as data accumulates. Several cliffs should flatten
+  once there are more than a handful of governed decisions, and that transition is
+  itself the evidence.
+
+That is a less satisfying answer than "the thresholds are correct", and it is the
+one the data supports. Being able to say *which* numbers are load-bearing and
+*which* are unverified assumptions is the deliverable here — a system whose
+arbitrary choices are labelled is defensible in a way that one whose choices are
+merely confident is not.
+
+### Two bugs in the sweep itself
+
+**Span measured on the wrong axis.** The first version computed span from `fired`
+counts alone and declared `minRestingBaselineNights` inert while its own churn
+column showed three decisions moving between `quiet` and `ineligible`. Verdicts
+now use total churn across all four statuses.
+
+**The denominator, above.** Cohort size instead of governed decisions.
+
+Both were caught the same way: the evidence was printed next to the conclusion,
+and the two disagreed. *Print the working next to the verdict* — it is the cheapest
+way to make a tool argue with itself.
 
 ## 6. Two bugs, and one that matters more
 

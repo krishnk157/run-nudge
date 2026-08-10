@@ -72,6 +72,21 @@ interface Point {
   asOf: Date;
 }
 
+/**
+ * The engine has two trigger paths and they exercise different code.
+ *
+ *   activity  — an upload arrived. `gapBefore` is meaningful; "days since your
+ *               last session" is zero by construction.
+ *   scheduled — a cron tick with no activity. The reverse: the stalled/idle
+ *               branches only ever run here.
+ *
+ * The first version of this sweep replayed only activity points, which made
+ * `stalledDays` look INERT. It wasn't robust — it was never executed. A
+ * threshold that is never reached is untested, and untested is indistinguishable
+ * from stable if you only count outcomes.
+ */
+type Cohort = "activity" | "scheduled";
+
 async function evaluate(
   sweep: Sweep,
   value: number,
@@ -135,17 +150,41 @@ async function main() {
   const rows = await sql<{ id: number; d: string }[]>`
     select id, to_char(started_at_local,'YYYY-MM-DD') as d
     from activities order by started_at_local`;
-  const points: Point[] = rows.map((r) => ({
+
+  const activityPoints: Point[] = rows.map((r) => ({
     activityId: Number(r.id),
     asOf: new Date(`${r.d}T12:00:00Z`),
   }));
 
+  // One scheduled tick per day from the first activity to today — the cron
+  // path, which no activity replay ever reaches.
+  const scheduledPoints: Point[] = [];
+  const first = new Date(`${rows[0].d}T12:00:00Z`).getTime();
+  const today = Date.now();
+  for (let t = first; t <= today; t += 86_400_000) {
+    scheduledPoints.push({ activityId: null, asOf: new Date(t) });
+  }
+
+  const cohorts: { name: Cohort; points: Point[] }[] = [
+    { name: "activity", points: activityPoints },
+    { name: "scheduled", points: scheduledPoints },
+  ];
+
   console.log(
-    `Sweeping ${SWEEPS.length} thresholds over ${points.length} activities.\n` +
-      `"churn" = how many of the ${points.length} decisions flip versus the previous row.\n`,
+    `Sweeping ${SWEEPS.length} thresholds over two trigger paths:\n` +
+      `  activity   ${activityPoints.length} uploads\n` +
+      `  scheduled  ${scheduledPoints.length} daily cron ticks\n` +
+      `"churn" = decisions that flip versus the previous row.\n`,
   );
 
-  const verdicts: { param: string; kind: string; verdict: string; note: string }[] = [];
+  interface Verdict {
+    param: string;
+    kind: string;
+    verdict: string;
+    note: string;
+    cohort: Cohort;
+  }
+  const verdicts: Verdict[] = [];
 
   for (const sweep of SWEEPS) {
     if (only && sweep.param !== only) continue;
@@ -155,76 +194,128 @@ async function main() {
     console.log(
       `${sweep.param}  [${sweep.kind}]  → ${sweep.rule}   (default ${DEFAULT_CONFIG[sweep.param]})`,
     );
-    console.log(
-      `  ${"value".padEnd(9)}${"fired".padEnd(7)}${"quiet".padEnd(7)}${"n/a".padEnd(6)}${"churn".padEnd(7)}`,
-    );
 
-    let prev: string[] | null = null;
-    let totalChurn = 0;
-    let churnAtDefault = 0;
+    for (const cohort of cohorts) {
+      let prev: string[] | null = null;
+      let totalChurn = 0;
+      let churnAtDefault = 0;
+      const lines: string[] = [];
+      // Which points this threshold governs at all — i.e. those whose status
+      // changes somewhere in the sweep. Everything else is decided by other
+      // conditions and would only dilute the denominator.
+      const governed = new Set<number>();
+      let firstStatuses: string[] | null = null;
 
-    for (const v of sweep.values) {
-      const statuses = await evaluate(sweep, v, points, base, cache);
-      const s = summarise(statuses);
-      const c = prev ? churn(prev, statuses) : 0;
-      totalChurn += c;
-      if (isDefault(v) && prev) churnAtDefault = c;
+      for (const v of sweep.values) {
+        const statuses = await evaluate(sweep, v, cohort.points, base, cache);
+        const s = summarise(statuses);
+        const c = prev ? churn(prev, statuses) : 0;
+        totalChurn += c;
+        if (isDefault(v) && prev) churnAtDefault = c;
+        firstStatuses ??= statuses;
+        statuses.forEach((st, i) => {
+          if (st !== firstStatuses![i]) governed.add(i);
+        });
 
-      console.log(
-        `  ${(isDefault(v) ? `▸${v}` : ` ${v}`).padEnd(9)}` +
-          `${String(s.fired).padEnd(7)}${String(s.quiet).padEnd(7)}` +
-          `${String(s.na).padEnd(6)}${String(prev ? c : "–").padEnd(7)}` +
-          (s.err ? `  ${s.err} ERRORS` : ""),
-      );
-      prev = statuses;
+        lines.push(
+          `    ${(isDefault(v) ? `▸${v}` : ` ${v}`).padEnd(9)}` +
+            `${String(s.fired).padEnd(7)}${String(s.quiet).padEnd(7)}` +
+            `${String(s.na).padEnd(6)}${String(prev ? c : "–").padEnd(7)}` +
+            (s.err ? `  ${s.err} ERRORS` : ""),
+        );
+        prev = statuses;
+      }
+
+      // Two separate questions, and an earlier version conflated them by
+      // measuring only `fired` counts:
+      //   1. Does the threshold change ANY decision here?  (total churn)
+      //   2. Is it stable NEAR the value we chose?         (churn at default)
+      // Denominator is the set of decisions this threshold actually governs,
+      // not the cohort size. Using cohort size made the same 3 flips read as
+      // 11% on 28 activities and 2% on 199 cron ticks — the verdict was
+      // tracking how many points I happened to sample, not stability.
+      const n = cohort.points.length;
+      const gov = governed.size;
+      const pct = (x: number) => (gov ? Math.round((100 * x) / gov) : 0);
+      let verdict: string;
+      let note: string;
+
+      if (totalChurn === 0) {
+        verdict = "INERT";
+        note = "never reached on this path — untested, not validated";
+      } else if (churnAtDefault === 0) {
+        verdict = "PLATEAU";
+        note = `nothing flips at the chosen value; governs ${gov} of ${n} decisions`;
+      } else if (churnAtDefault / gov <= 0.25) {
+        verdict = "PLATEAU";
+        note = `${churnAtDefault} of the ${gov} decisions it governs flip at the boundary (${pct(churnAtDefault)}%)`;
+      } else {
+        verdict = "CLIFF";
+        note = `${churnAtDefault} of the ${gov} decisions it governs flip right at the chosen value (${pct(churnAtDefault)}%)`;
+      }
+
+      console.log(`  ${cohort.name} (${n} points)`);
+      if (totalChurn > 0) {
+        console.log(
+          `    ${"value".padEnd(9)}${"fired".padEnd(7)}${"quiet".padEnd(7)}${"n/a".padEnd(6)}${"churn".padEnd(7)}`,
+        );
+        console.log(lines.join("\n"));
+      }
+      console.log(`    → ${verdict}: ${note}`);
+      verdicts.push({
+        param: String(sweep.param),
+        kind: sweep.kind,
+        verdict,
+        note,
+        cohort: cohort.name,
+      });
     }
-
-    // Two separate questions, and an earlier version of this script conflated
-    // them by measuring only `fired` counts — which called a threshold inert
-    // while it was visibly moving decisions between quiet and ineligible.
-    //   1. Does the threshold change ANY decision anywhere?  (total churn)
-    //   2. Is it stable NEAR the value we chose?             (churn at default)
-    const pct = (n: number) => Math.round((100 * n) / points.length);
-    let verdict: string;
-    let note: string;
-
-    if (totalChurn === 0) {
-      verdict = "INERT";
-      note = "no value changes any outcome — untested on this history, not validated";
-    } else if (churnAtDefault === 0) {
-      verdict = "PLATEAU";
-      note = `nothing flips at the chosen value; ${totalChurn} decisions move across the full range`;
-    } else if (churnAtDefault <= Math.max(1, points.length * 0.05)) {
-      verdict = "PLATEAU";
-      note = `${churnAtDefault} decision(s) flip at the boundary (${pct(churnAtDefault)}%)`;
-    } else {
-      verdict = "CLIFF";
-      note = `${churnAtDefault} decisions flip right at the chosen value (${pct(churnAtDefault)}%)`;
-    }
-
-    console.log(`  → ${verdict}: ${note}`);
-    verdicts.push({ param: String(sweep.param), kind: sweep.kind, verdict, note });
   }
 
   console.log("\n" + "═".repeat(76));
-  console.log("SUMMARY\n");
-  for (const v of verdicts) {
-    console.log(`  ${v.verdict.padEnd(9)}${v.kind.padEnd(12)}${v.param}`);
+  console.log("SUMMARY — worst verdict across the two trigger paths\n");
+
+  const params = [...new Set(verdicts.map((v) => v.param))];
+  const rank = { CLIFF: 3, INERT: 2, PLATEAU: 1 } as const;
+  const overall = params.map((p) => {
+    const vs = verdicts.filter((v) => v.param === p);
+    // A threshold exercised on neither path is untested overall; one that is
+    // a cliff anywhere is a cliff.
+    const allInert = vs.every((v) => v.verdict === "INERT");
+    const worst = vs.reduce((a, b) =>
+      rank[b.verdict as keyof typeof rank] > rank[a.verdict as keyof typeof rank] ? b : a,
+    );
+    return {
+      param: p,
+      kind: vs[0].kind,
+      verdict: allInert ? "INERT" : worst.verdict === "INERT" ? "PLATEAU" : worst.verdict,
+      driver: worst.cohort,
+      note: worst.note,
+      allInert,
+    };
+  });
+
+  for (const v of overall) {
+    console.log(
+      `  ${v.verdict.padEnd(9)}${v.kind.padEnd(12)}${v.param.padEnd(28)}` +
+        (v.verdict === "CLIFF" ? `(${v.driver} path)` : ""),
+    );
   }
-  const cliffs = verdicts.filter((v) => v.verdict === "CLIFF");
-  const inert = verdicts.filter((v) => v.verdict === "INERT");
+
+  const cliffs = overall.filter((v) => v.verdict === "CLIFF");
+  const inert = overall.filter((v) => v.verdict === "INERT");
   console.log(
-    `\n${verdicts.length - cliffs.length - inert.length} plateau, ${cliffs.length} cliff, ${inert.length} inert.`,
+    `\n${overall.length - cliffs.length - inert.length} plateau, ${cliffs.length} cliff, ${inert.length} inert.`,
   );
   if (cliffs.length) {
     console.log(
       "\nCliffs need an argument, not a default:\n" +
-        cliffs.map((c) => `  • ${c.param} — ${c.note}`).join("\n"),
+        cliffs.map((c) => `  • ${c.param} — ${c.note} [${c.driver}]`).join("\n"),
     );
   }
   if (inert.length) {
     console.log(
-      "\nInert thresholds do nothing on this history — untested, not validated:\n" +
+      "\nNever exercised on either path — untested, not validated:\n" +
         inert.map((c) => `  • ${c.param}`).join("\n"),
     );
   }
