@@ -11,7 +11,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "backfill": "tsx --tsconfig tsconfig.json scripts/backfill.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "analyze": "tsx --tsconfig tsconfig.json scripts/analyze.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
