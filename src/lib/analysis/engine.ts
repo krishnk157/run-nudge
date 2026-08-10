@@ -1,6 +1,7 @@
 import { sql } from "@/db/client";
 import { getAnchors } from "./athlete";
-import { loadContext, RULES } from "./rules";
+import { DEFAULT_CONFIG, type AnalysisConfig } from "./config";
+import { loadContext, newCache, RULES, type AnalysisCache } from "./rules";
 import type { Finding, InsightReport } from "./types";
 
 /**
@@ -15,10 +16,12 @@ import type { Finding, InsightReport } from "./types";
 export async function computeInsights(
   activityId: number | null = null,
   asOf?: Date,
+  config: AnalysisConfig = DEFAULT_CONFIG,
+  cache: AnalysisCache = newCache(),
 ): Promise<InsightReport> {
   const when = asOf ?? (await resolveAsOf(activityId));
   const anchors = await getAnchors();
-  const ctx = await loadContext(when, anchors, activityId);
+  const ctx = await loadContext(when, anchors, activityId, config, cache);
 
   const findings: Finding[] = [];
   for (const { name, run } of RULES) {

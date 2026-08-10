@@ -1,4 +1,5 @@
 import { sql } from "@/db/client";
+import { DEFAULT_CONFIG, type AnalysisConfig } from "./config";
 import {
   activityLoads,
   calibrate,
@@ -6,7 +7,14 @@ import {
   windowLoad,
   type ActivityLoad,
 } from "./load";
-import { consistency, efficiencySeries, gapBefore, slope } from "./metrics";
+import {
+  consistency,
+  efficiencySeries,
+  gapBefore,
+  slope,
+  type Consistency,
+  type EfficiencyPoint,
+} from "./metrics";
 import { needs, ok, type AthleteAnchors, type Finding } from "./types";
 
 /**
@@ -24,53 +32,53 @@ export interface RuleContext {
   anchors: AthleteAnchors;
   loads: ActivityLoad[];
   activityId: number | null;
+  config: AnalysisConfig;
+  /**
+   * Optional memo for the SQL-backed lookups. The engine gives each report a
+   * fresh one (so a long-lived process can't serve stale data); the sensitivity
+   * sweep shares one across thousands of runs, where the data is static by
+   * construction.
+   */
+  cache?: AnalysisCache;
 }
+
+export interface AnalysisCache {
+  efficiency?: EfficiencyPoint[];
+  gaps: Map<number, number | null>;
+  consistency: Map<string, Consistency>;
+  restingHr: Map<string, RestingHrWindow>;
+}
+
+export const newCache = (): AnalysisCache => ({
+  gaps: new Map(),
+  consistency: new Map(),
+  restingHr: new Map(),
+});
 
 export type Rule = (ctx: RuleContext) => Promise<Finding>;
 
 const round = (n: number, p = 1) => Math.round(n * 10 ** p) / 10 ** p;
+const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 
 /* ------------------------------------------------------------------ */
 
 /**
- * Acute:chronic workload ratio, with the layoff guard the plan calls for.
+ * Acute:chronic workload ratio, with three guards.
  *
  * Garmin scored this athlete's 5 Jul run at ACWR 4.8 "VERY_HIGH" — not because
  * the run was extreme, but because seven weeks off had decayed chronic load to
  * 131. A ratio whose denominator is near-zero measures the layoff, not the
- * session, so we refuse to report it rather than emit an alarming number that
- * is arithmetically true and practically meaningless.
+ * session. The density and spread guards below were each added after replaying
+ * real history showed the previous version emitting nonsense.
  */
-/**
- * Roughly two sessions a week. Below that, each session is a quarter or more of
- * the entire chronic baseline, so the ratio tracks whether one run happened to
- * be 2 km or 5 km rather than anything about accumulated training.
- *
- * Replaying history at a threshold of 4 produced "ratio 1.86" then "0.33" on
- * consecutive weekly runs — arithmetically correct, and exactly the kind of
- * meaningless alarm that trains someone to ignore notifications. ACWR comes
- * from a literature about athletes training most days; applying it to one
- * session a week is using the instrument outside its range.
- *
- * The athlete's stated plan (4–5 gym + a weekend run) clears this comfortably.
- */
-const MIN_CHRONIC_SESSIONS = 8;
-/**
- * Sessions alone don't establish a baseline — they have to be spread. Four
- * sessions in the last five days give a "chronic" load that is really a second
- * acute load. Requiring training in 3 of the 4 chronic weeks is what separates
- * an established baseline from a ramp-up out of a layoff.
- */
-const MIN_CHRONIC_WEEKS = 3;
-
 export const acwrRule: Rule = async (ctx) => {
+  const cfg = ctx.config;
   const w = windowLoad(ctx.loads, ctx.asOf);
 
-  const thinBaseline =
-    w.sessionsChronic < MIN_CHRONIC_SESSIONS || w.weeksCovered < MIN_CHRONIC_WEEKS;
+  const byWeeks = w.weeksCovered < cfg.minChronicWeeks;
+  const bySessions = w.sessionsChronic < cfg.minChronicSessions;
 
-  if (thinBaseline) {
-    const byWeeks = w.weeksCovered < MIN_CHRONIC_WEEKS;
+  if (byWeeks || bySessions) {
     return {
       rule: "acute_chronic_ratio",
       status: "ineligible",
@@ -79,7 +87,7 @@ export const acwrRule: Rule = async (ctx) => {
         chronic: round(w.chronic),
         sessionsChronic: w.sessionsChronic,
         weeksCovered: w.weeksCovered,
-        // What the ratio *would* have been. Kept for debugging and for the
+        // What the ratio *would* have been. Kept for debugging and the
         // validation script; never surfaced as a finding.
         suppressedRatio: w.ratio == null ? null : round(w.ratio, 2),
       },
@@ -88,7 +96,7 @@ export const acwrRule: Rule = async (ctx) => {
           ? "training in the last 28 days is too bunched to be a baseline — a ratio here would describe the ramp-up, not the session"
           : "not enough training in the last 28 days to form a baseline — a ratio here would describe the gap, not the session",
         byWeeks ? w.weeksCovered : w.sessionsChronic,
-        byWeeks ? MIN_CHRONIC_WEEKS : MIN_CHRONIC_SESSIONS,
+        byWeeks ? cfg.minChronicWeeks : cfg.minChronicSessions,
       ),
     };
   }
@@ -96,15 +104,19 @@ export const acwrRule: Rule = async (ctx) => {
   // The exponentially weighted ratio is the reported one; the flat rolling
   // version is kept alongside because the two disagreeing is itself a signal
   // worth seeing during a ramp-up.
-  const e = ewmaLoad(ctx.loads, ctx.asOf);
+  const e = ewmaLoad(ctx.loads, ctx.asOf, {
+    acuteDays: cfg.ewmaAcuteDays,
+    chronicDays: cfg.ewmaChronicDays,
+  });
   const ratio = e.ratio ?? (w.ratio as number);
-  const high = ratio >= 1.5;
-  const low = ratio < 0.8;
+  const high = ratio >= cfg.acwrHigh;
+  const low = ratio < cfg.acwrLow;
 
   return {
     rule: "acute_chronic_ratio",
     status: high || low ? "fired" : "quiet",
-    severity: ratio >= 1.8 ? "warning" : high || low ? "notable" : "info",
+    severity:
+      ratio >= cfg.acwrWarning ? "warning" : high || low ? "notable" : "info",
     statement: high
       ? `Load ratio ${round(ratio, 2)} — this week is well above your 4-week baseline.`
       : low
@@ -129,19 +141,21 @@ export const acwrRule: Rule = async (ctx) => {
 
 /* ------------------------------------------------------------------ */
 
-const MIN_EFFICIENCY_RUNS = 8;
-
 /**
- * Aerobic efficiency trend. Dormant until there are enough HR-bearing runs to
- * distinguish a trend from noise — 5 exist today, spread over 10 weeks, which
- * is fewer points than the number of things that move them.
+ * Aerobic efficiency trend — the quantity that tracks "improve VO2max and
+ * pace". Dormant until there are enough HR-bearing runs to distinguish a trend
+ * from noise.
  */
 export const efficiencyRule: Rule = async (ctx) => {
-  const pts = (await efficiencySeries(ctx.anchors)).filter(
-    (p) => p.date <= ctx.asOf.toISOString().slice(0, 10),
-  );
+  const cfg = ctx.config;
+  let series = ctx.cache?.efficiency;
+  if (!series) {
+    series = await efficiencySeries(ctx.anchors);
+    if (ctx.cache) ctx.cache.efficiency = series;
+  }
+  const pts = series.filter((p) => p.date <= isoDay(ctx.asOf));
 
-  if (pts.length < MIN_EFFICIENCY_RUNS) {
+  if (pts.length < cfg.minEfficiencyRuns) {
     return {
       rule: "aerobic_efficiency_trend",
       status: "ineligible",
@@ -152,7 +166,7 @@ export const efficiencyRule: Rule = async (ctx) => {
       eligibility: needs(
         "needs more runs recorded with heart rate before a trend means anything",
         pts.length,
-        MIN_EFFICIENCY_RUNS,
+        cfg.minEfficiencyRuns,
       ),
     };
   }
@@ -168,10 +182,14 @@ export const efficiencyRule: Rule = async (ctx) => {
 
   return {
     rule: "aerobic_efficiency_trend",
-    status: Math.abs(perMonth) >= 0.02 ? "fired" : "quiet",
+    status:
+      Math.abs(perMonth) >= cfg.efficiencyChangePerMonth ? "fired" : "quiet",
     severity: "info",
     statement: `Aerobic efficiency ${perMonth >= 0 ? "up" : "down"} ${round(Math.abs(perMonth) * 100)}% per month across ${pts.length} runs.`,
-    data: { runsWithHr: pts.length, changePerMonthPct: round(perMonth * 100, 2) },
+    data: {
+      runsWithHr: pts.length,
+      changePerMonthPct: round(perMonth * 100, 2),
+    },
     eligibility: ok(),
   };
 };
@@ -179,11 +197,14 @@ export const efficiencyRule: Rule = async (ctx) => {
 /* ------------------------------------------------------------------ */
 
 /** Consistency is the one rule that never lacks data — absence *is* its input. */
-const RETURN_GAP_DAYS = 14;
-const STALLED_DAYS = 10;
-
 export const consistencyRule: Rule = async (ctx) => {
-  const c = await consistency(ctx.asOf);
+  const cfg = ctx.config;
+  const key = isoDay(ctx.asOf);
+  let c = ctx.cache?.consistency.get(key);
+  if (!c) {
+    c = await consistency(ctx.asOf);
+    ctx.cache?.consistency.set(key, c);
+  }
 
   if (c.daysSinceLast == null) {
     return {
@@ -196,17 +217,20 @@ export const consistencyRule: Rule = async (ctx) => {
 
   // Triggered by an upload, the useful figure is the gap this session ended,
   // not "days since last" — which is zero by construction.
-  const gap = ctx.activityId != null ? await gapBefore(ctx.activityId) : null;
-  const returning = gap != null && gap >= RETURN_GAP_DAYS;
-  const stalled = ctx.activityId == null && c.daysSinceLast >= STALLED_DAYS;
+  let gap: number | null = null;
+  if (ctx.activityId != null) {
+    if (ctx.cache?.gaps.has(ctx.activityId)) {
+      gap = ctx.cache.gaps.get(ctx.activityId) ?? null;
+    } else {
+      gap = await gapBefore(ctx.activityId);
+      ctx.cache?.gaps.set(ctx.activityId, gap);
+    }
+  }
+
+  const returning = gap != null && gap >= cfg.returnGapDays;
+  const stalled = ctx.activityId == null && c.daysSinceLast >= cfg.stalledDays;
   const belowBaseline =
     ctx.activityId == null && c.sessionsLast7 === 0 && c.weeklyBaseline >= 1;
-
-  const statement = returning
-    ? `First session in ${gap} days.`
-    : stalled
-      ? `${c.daysSinceLast} days since your last session — your recent norm is ${round(c.weeklyBaseline)} a week.`
-      : `${c.sessionsLast7} sessions in the last 7 days.`;
 
   return {
     rule: "consistency",
@@ -217,7 +241,11 @@ export const consistencyRule: Rule = async (ctx) => {
         : returning || stalled
           ? "notable"
           : "info",
-    statement,
+    statement: returning
+      ? `First session in ${gap} days.`
+      : stalled
+        ? `${c.daysSinceLast} days since your last session — your recent norm is ${round(c.weeklyBaseline)} a week.`
+        : `${c.sessionsLast7} sessions in the last 7 days.`,
     data: {
       gapBeforeDays: gap,
       daysSinceLast: c.daysSinceLast,
@@ -233,7 +261,12 @@ export const consistencyRule: Rule = async (ctx) => {
 
 /* ------------------------------------------------------------------ */
 
-const MIN_RESTING_SAMPLES = 5;
+interface RestingHrWindow {
+  recent: number | null;
+  nRecent: number;
+  baseline: number | null;
+  nBase: number;
+}
 
 /**
  * Resting-HR drift, gated on measurement regime rather than on presence.
@@ -244,43 +277,63 @@ const MIN_RESTING_SAMPLES = 5;
  * improvement in fitness. So this rule only ever looks at `valid_sleep` days.
  */
 export const restingHrRule: Rule = async (ctx) => {
-  const iso = ctx.asOf.toISOString().slice(0, 10);
-  const [r] = await sql<
-    { recent: number | null; n_recent: number; baseline: number | null; n_base: number }[]
-  >`
-    select
-      avg(resting_hr) filter (where date >  ${iso}::date - 14)::float as recent,
-      count(*)        filter (where date >  ${iso}::date - 14)::int   as n_recent,
-      avg(resting_hr) filter (where date <= ${iso}::date - 14)::float as baseline,
-      count(*)        filter (where date <= ${iso}::date - 14)::int   as n_base
-    from daily_metrics
-    where resting_hr is not null and valid_sleep is true and date <= ${iso}::date`;
+  const cfg = ctx.config;
+  const iso = isoDay(ctx.asOf);
 
-  const nRecent = r?.n_recent ?? 0;
-  const nBase = r?.n_base ?? 0;
+  let win = ctx.cache?.restingHr.get(iso);
+  if (!win) {
+    const [r] = await sql<
+      {
+        recent: number | null;
+        n_recent: number;
+        baseline: number | null;
+        n_base: number;
+      }[]
+    >`
+      select
+        avg(resting_hr) filter (where date >  ${iso}::date - 14)::float as recent,
+        count(*)        filter (where date >  ${iso}::date - 14)::int   as n_recent,
+        avg(resting_hr) filter (where date <= ${iso}::date - 14)::float as baseline,
+        count(*)        filter (where date <= ${iso}::date - 14)::int   as n_base
+      from daily_metrics
+      where resting_hr is not null and valid_sleep is true and date <= ${iso}::date`;
+    win = {
+      recent: r?.recent ?? null,
+      nRecent: r?.n_recent ?? 0,
+      baseline: r?.baseline ?? null,
+      nBase: r?.n_base ?? 0,
+    };
+    ctx.cache?.restingHr.set(iso, win);
+  }
 
-  if (nRecent < 3 || nBase < MIN_RESTING_SAMPLES) {
+  if (
+    win.nRecent < cfg.minRestingRecentNights ||
+    win.nBase < cfg.minRestingBaselineNights
+  ) {
     return {
       rule: "resting_hr_drift",
       status: "ineligible",
-      data: { overnightNightsRecent: nRecent, overnightNightsBaseline: nBase },
+      data: {
+        overnightNightsRecent: win.nRecent,
+        overnightNightsBaseline: win.nBase,
+      },
       eligibility: needs(
         "needs nights with the watch worn to sleep — daytime readings are a different measurement and can't be compared",
-        nRecent,
-        3,
+        win.nRecent,
+        cfg.minRestingRecentNights,
       ),
     };
   }
 
-  const delta = (r.recent as number) - (r.baseline as number);
+  const delta = (win.recent as number) - (win.baseline as number);
   return {
     rule: "resting_hr_drift",
-    status: Math.abs(delta) >= 4 ? "fired" : "quiet",
-    severity: delta >= 6 ? "warning" : "notable",
+    status: Math.abs(delta) >= cfg.restingHrDeltaBpm ? "fired" : "quiet",
+    severity: delta >= cfg.restingHrDeltaBpm + 2 ? "warning" : "notable",
     statement: `Resting HR ${delta >= 0 ? "up" : "down"} ${round(Math.abs(delta))} bpm versus your baseline.`,
     data: {
-      recent: round(r.recent as number),
-      baseline: round(r.baseline as number),
+      recent: round(win.recent as number),
+      baseline: round(win.baseline as number),
       deltaBpm: round(delta),
       regime: "overnight-worn-only",
     },
@@ -332,8 +385,10 @@ export async function loadContext(
   asOf: Date,
   anchors: AthleteAnchors,
   activityId: number | null = null,
+  config: AnalysisConfig = DEFAULT_CONFIG,
+  cache?: AnalysisCache,
 ): Promise<RuleContext> {
   const cal = await calibrate(anchors);
   const loads = await activityLoads(anchors, cal);
-  return { asOf, anchors, loads, activityId };
+  return { asOf, anchors, loads, activityId, config, cache };
 }

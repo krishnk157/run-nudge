@@ -12,7 +12,8 @@
     "db:studio": "drizzle-kit studio",
     "backfill": "tsx --tsconfig tsconfig.json scripts/backfill.ts",
     "typecheck": "tsc --noEmit",
-    "analyze": "tsx --tsconfig tsconfig.json scripts/analyze.ts"
+    "analyze": "tsx --tsconfig tsconfig.json scripts/analyze.ts",
+    "sensitivity": "tsx --tsconfig tsconfig.json scripts/sensitivity.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
