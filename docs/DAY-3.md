@@ -183,6 +183,84 @@ The clearest evidence of that: **we decline on 51 of the 72 days.** Garmin repor
 
 ---
 
+## 5a. Are the thresholds real? (sensitivity sweep)
+
+Validating ACWR against Garmin checked *one* decision. The engine makes about
+fifteen, all by judgment. `npm run sensitivity` asks the only question that makes
+such a choice defensible: **does the answer depend on it?**
+
+- **PLATEAU** — findings barely move across a wide range. The exact number
+  doesn't matter; the threshold is doing structural work.
+- **CLIFF** — findings jump right at the chosen value. That value was selected to
+  produce a particular answer, which is a fact about me, not about the athlete.
+- **INERT** — no value changes anything. Not robustness: *absence of test*.
+
+Thresholds moved out of the rule bodies into [config.ts](../src/lib/analysis/config.ts),
+each labelled **METHOD** (a fact about the metric) or **PREFERENCE** (how quiet you
+want the system). Defending a preference as though it were a measurement is its
+own kind of dishonesty, so the distinction is in the type, not the commentary.
+
+### Results — 4 plateau, 3 cliff, 3 inert
+
+**The density guard holds.** The threshold I was least sure of turns out to be the
+most robust:
+
+```
+minChronicSessions  [METHOD]              (default 8)
+  value   fired  quiet  n/a   churn
+   6       3      5     20     4
+   7       1      4     23     3
+  ▸8       1      4     23     0
+   9       1      4     23     0
+   10      1      4     23     0
+   12      0      3     25     2
+  → PLATEAU: nothing flips at the chosen value
+```
+
+Zero churn from 7 to 10. The guard is structural, not tuned — which is what makes
+"ACWR is meaningless below a certain training density" a claim about the method
+rather than an excuse for a number I liked.
+
+**Three cliffs, each needing an argument:**
+
+```
+acwrHigh  [PREFERENCE]                    (default 1.5)
+  1.2 → 4 fired   1.4 → 3 fired   ▸1.5 → 1 fired   1.6 → 0 fired
+```
+
+The entire firing range collapses between 1.4 and 1.6, because this athlete's
+ratios cluster there. So 1.5 alone decides between three notifications and none.
+It is a preference, and the honest handling is to expose it rather than defend it
+— though it isn't arbitrary: 1.5 is the conventional boundary in the ACWR
+literature, which is exactly the kind of external argument a cliff demands.
+
+`minChronicWeeks = 3` and `minRestingBaselineNights = 5` are cliffs for a duller
+reason: with 28 activities and 11 worn nights, almost any threshold is a cliff.
+They may well flatten on more data. Recording them as unresolved is the point.
+
+**Three inert — and two are a flaw in the test, not a property of the threshold:**
+
+`stalledDays` never changes anything because it only applies when the engine runs
+on a *schedule* (`activityId == null`), and the sweep only replays activity-triggered
+points. `restingHrDeltaBpm` is inert because its rule is ineligible on 27 of 28
+activities, so the comparison it guards almost never runs.
+
+That distinction matters more than the verdicts. **An untested threshold looks
+identical to a robust one if you only count outcomes** — which is the same failure
+this project keeps finding, now inside the tool built to find it.
+
+### A bug in the sweep itself
+
+The first version measured span on `fired` counts alone and declared
+`minRestingBaselineNights` inert while its churn column plainly showed three
+decisions moving between `quiet` and `ineligible`. Verdicts now use total churn
+across all four statuses.
+
+Worth noting the pattern: the instrument built to check the engine needed
+checking, and what caught it was a column that contradicted the verdict printed
+beside it. Print the evidence next to the conclusion and disagreements become
+visible.
+
 ## 6. Two bugs, and one that matters more
 
 ### `gapBefore` threw invalid SQL
