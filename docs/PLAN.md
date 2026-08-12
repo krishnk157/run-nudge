@@ -208,7 +208,7 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 
 - Strava OAuth + full-history backfill into `activities` table ✅ *Day 1*
 - Garmin daily metrics into `daily_metrics` table; ~~dedup/reconciliation for dual-logged activities~~ ✅ *Day 2*
-- Derived-state computation (deterministic code, not LLM): weekly mileage, acute:chronic load ratio, rolling pace/HR baselines, anomaly checks
+- Derived-state computation (deterministic code, not LLM): ~~weekly mileage~~ cross-modal load, acute:chronic load ratio, ~~rolling pace/HR baselines~~ regime-aware baselines, anomaly checks ✅ *Day 3*
 
 > **▸ Revised after Day 2 — dedup struck; data-quality work added.**
 > Dual-logged activities **do not occur** in this data, so there is nothing to reconcile
@@ -339,6 +339,42 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > means choosing how a 90-minute gym session at 127 bpm compares to a 37-minute run at 183 bpm.
 > That weighting is a judgment call, and Garmin's own acute load on the same days is the
 > reference to calibrate it against.
+
+> **▸ Day 3 — done (2026-08-12).** `computeInsights(activityId)` returns structured findings
+> from five capability-gated rules. Detail in [DAY-3.md](DAY-3.md).
+>
+> **Validated:** acute:chronic ratio against Garmin's own on 72 days, **r = 0.967**. We decline
+> on 51 of them because Garmin reports a ratio even when its own chronic load has collapsed to
+> zero — which is why the 5 Jul run reads *"first session in 28 days"* here rather than Garmin's
+> **4.8 VERY_HIGH, readiness 1/100**. That contrast is the clearest single demonstration of what
+> the engine is for.
+>
+> **Load is heart-rate based, as §1a required.** Strava's `suffer_score` was the obvious
+> fallback for activities without HR and turned out to be present on exactly the 18 activities
+> that already have HR — zero added coverage. The fallback is instead calibrated from the
+> athlete's own measured sessions per sport, and every load carries the method used so rules
+> never silently compare estimated against measured.
+>
+> **Three guards on ACWR, two of them unplanned.** Only the layoff guard was designed in
+> advance. Replaying real history exposed the other two: at 4 sessions/28 days the engine
+> emitted "ratio 1.86" then "0.33" on consecutive weekly runs, and a count-only rule let four
+> sessions in five days score 4.0. *A count is not a distribution.*
+>
+> **Two additions the plan didn't ask for, both prompted by "how do we know these are valid?":**
+>
+> - **Threshold sensitivity sweep** (`npm run sensitivity`) — every threshold now lives in
+>   `AnalysisConfig` labelled METHOD (a fact about the metric) or PREFERENCE (how quiet you want
+>   the system), and is swept across both trigger paths. Verdict: **5 plateau, 5 cliff, 0 inert**.
+>   `minChronicSessions = 8` is a genuine plateau across 7–10. The rest govern between 3 and 17
+>   decisions each, so the sweep is largely reporting sample size — they are choices *made
+>   explicit*, not choices justified, and should be re-swept as data accumulates.
+> - **42 invariant tests** (`npm test`) — pinning the properties that must hold whatever the
+>   thresholds are, including all three ACWR guards. Verified by sabotage: each fixed bug was
+>   deliberately reintroduced to confirm the suite catches it. One test didn't, and was rewritten.
+>
+> **Deferred:** `strength_sets` ingestion. All 10 historical gym sessions return 404 for
+> exercise sets — they predate the switch to strength mode. Garmin retains set data, so this can
+> backfill once sessions exist; the rule ships correctly dormant until then.
 
 ### Day 4 — Event pipeline + LLM judgment
 
@@ -537,6 +573,21 @@ The differentiators here: push not pull (unprompted notifications), deterministi
 - **Garmin unofficial API** — undocumented, breaks periodically; fallback manual CSV or Strava-only v1
 - **Webhook testing needs public URL** — tunnel locally (Day 4), deploy re-registration (Day ~~7~~ 8)
 - **Notification tuning is subjective** — expect iteration on the significance prompt after living with it for a week; that iteration itself is a good story
+
+> **▸ Added after Day 3 — the risk the register still doesn't name.**
+> **Most thresholds cannot be validated at this data volume.** The sensitivity sweep found
+> 5 of 10 sit on cliffs, not because they were chosen badly but because each governs only
+> 3–17 decisions across 28 activities and 11 worn nights. That is a statement about sample
+> size, not about the numbers.
+>
+> The mitigation is disclosure rather than confidence: thresholds are labelled METHOD or
+> PREFERENCE, the sweep runs on demand, and `docs/DAY-3.md` records which single threshold is
+> actually validated. **Being able to say which numbers are load-bearing and which are
+> unverified assumptions is the deliverable** — a system whose arbitrary choices are labelled
+> is defensible in a way that one whose choices are merely confident is not.
+>
+> Re-run `npm run sensitivity` as history accumulates. Cliffs flattening into plateaus is
+> itself the evidence, and that transition is worth capturing when it happens.
 - **Vercel serverless limits** — long backfills may need chunking or a one-off local script rather than a serverless function
 
 > **▸ Revised after Days 1–2 — how these actually played out, plus what wasn't on the list.**

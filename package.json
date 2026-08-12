@@ -13,7 +13,9 @@
     "backfill": "tsx --tsconfig tsconfig.json scripts/backfill.ts",
     "typecheck": "tsc --noEmit",
     "analyze": "tsx --tsconfig tsconfig.json scripts/analyze.ts",
-    "sensitivity": "tsx --tsconfig tsconfig.json scripts/sensitivity.ts"
+    "sensitivity": "tsx --tsconfig tsconfig.json scripts/sensitivity.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
@@ -34,6 +36,7 @@
     "eslint-config-next": "16.3.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.5",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }
