@@ -98,8 +98,12 @@ const OUTPUT_SCHEMA = {
   properties: {
     notify: { type: "boolean" as const },
     severity: {
-      type: ["string", "null"] as const,
-      enum: ["info", "notable", "warning", null],
+      // Nullable enum: the API rejects null inside an enum whose type is
+      // ["string","null"] — the union has to be expressed via anyOf.
+      anyOf: [
+        { type: "string" as const, enum: ["info", "notable", "warning"] },
+        { type: "null" as const },
+      ],
     },
     subject: { type: ["string", "null"] as const },
     message: { type: ["string", "null"] as const },

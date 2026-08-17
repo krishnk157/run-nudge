@@ -216,7 +216,7 @@ describe("efficiencyRule", () => {
 });
 
 describe("restingHrRule", () => {
-  it("refuses when there aren't enough nights the watch was worn", async () => {
+  it("refuses when there aren't enough recent worn nights", async () => {
     const cache = newCache();
     cache.restingHr.set(asOf.toISOString().slice(0, 10), {
       recent: 62,
@@ -227,6 +227,26 @@ describe("restingHrRule", () => {
     const r = await restingHrRule(ctx({ cache }));
     expect(r.status).toBe("ineligible");
     expect(r.eligibility.reason).toMatch(/worn to sleep/);
+    expect(r.eligibility.have).toBe(1);
+    expect(r.eligibility.need).toBe(3);
+  });
+
+  it("reports the baseline dimension when that is what failed", async () => {
+    // The original code always reported recent-nights, so a baseline failure
+    // showed have=6 need=3 — apparently satisfied. Caught by the LLM judge's
+    // rationale on a simulated event, which called the contradiction out.
+    const cache = newCache();
+    cache.restingHr.set(asOf.toISOString().slice(0, 10), {
+      recent: 60,
+      nRecent: 6,
+      baseline: 58,
+      nBase: 2,
+    });
+    const r = await restingHrRule(ctx({ cache }));
+    expect(r.status).toBe("ineligible");
+    expect(r.eligibility.have).toBe(2);
+    expect(r.eligibility.need).toBe(5);
+    expect(r.eligibility.reason).toMatch(/baseline/);
   });
 
   it("compares only overnight-worn readings", async () => {
