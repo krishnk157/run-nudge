@@ -6,7 +6,7 @@ See [docs/PLAN.md](docs/PLAN.md) for the full plan and rationale.
 
 ## Status
 
-**Day 2 — Garmin daily metrics + activity provenance.** Strava OAuth and a resumable full-history backfill (Day 1), plus a Python sidecar syncing Garmin wellness data into `daily_metrics`.
+**Day 3 — analysis engine.** Strava ingestion (Day 1), Garmin daily metrics via a Python sidecar (Day 2), and a deterministic insight engine whose rules each declare the data they need (Day 3).
 
 ## Stack
 
@@ -94,6 +94,10 @@ are what gets a Garmin account rate-limited.
 | `npm run db:studio`                         | Drizzle Studio — browse the data             |
 | `npm run backfill`                          | Pull Strava history into the DB              |
 | `npm run typecheck`                         | `tsc --noEmit`                               |
+| `npm test`                                  | Invariant tests for the analysis engine      |
+| `npm run analyze`                           | Replay the engine over your whole history    |
+| `npm run analyze -- --validate`             | Cross-check our load ratio against Garmin's  |
+| `npm run sensitivity`                       | Sweep every threshold: plateau, cliff, inert |
 | `.venv/bin/python scripts/garmin_sync.py`   | Pull Garmin daily metrics into the DB        |
 
 > `db:generate` prompts interactively when it can't tell a column rename from a
