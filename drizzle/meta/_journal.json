@@ -15,6 +15,13 @@
       "when": 1786214578892,
       "tag": "0001_day2_garmin_daily_metrics",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786974259990,
+      "tag": "0002_day4_notifications",
+      "breakpoints": true
     }
   ]
 }

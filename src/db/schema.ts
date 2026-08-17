@@ -1,5 +1,6 @@
 import {
   bigint,
+  bigserial,
   boolean,
   date,
   doublePrecision,
@@ -196,6 +197,68 @@ export const dailyMetrics = pgTable(
   },
   // No index on `date` — it is the primary key, which Postgres already backs
   // with a unique index. A second one would be pure write overhead.
+);
+
+/**
+ * Every webhook delivery Strava sends us, verbatim, with its processing
+ * outcome. Delivery is at-least-once, the receiver must answer within
+ * seconds, and processing happens after the response — so when something
+ * goes wrong the only evidence is what we wrote down here.
+ */
+export const webhookEvents = pgTable(
+  "webhook_events",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    objectType: text("object_type").notNull(),
+    objectId: bigint("object_id", { mode: "number" }).notNull(),
+    aspectType: text("aspect_type").notNull(),
+    /** 'received' → 'processed' | 'failed' | 'ignored' */
+    status: text("status").notNull().default("received"),
+    error: text("error"),
+    raw: jsonb("raw").notNull(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+  },
+  (t) => [index("webhook_events_received_idx").on(t.receivedAt)],
+);
+
+/**
+ * Every notification decision, sent or withheld. The plan calls this the
+ * debugging trail, and the withheld rows are the point: "quiet" is only
+ * distinguishable from "broken" if silence is logged too.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** What ran the pipeline: 'webhook' | 'cron' | 'simulated' | 'replay' */
+    trigger: text("trigger").notNull(),
+    activityId: bigint("activity_id", { mode: "number" }),
+
+    /** 'notify' | 'skip' | 'error' — the judgment, not the delivery. */
+    decision: text("decision").notNull(),
+    severity: text("severity"),
+    subject: text("subject"),
+    message: text("message"),
+    /** The model's stated reason — for tuning the significance prompt later. */
+    rationale: text("rationale"),
+
+    /** Full findings JSON the judge saw — reproduces the decision exactly. */
+    findings: jsonb("findings").notNull(),
+    model: text("model"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+
+    /** 'drafted' now; Day 5 delivery adds 'sent' | 'send_failed'. */
+    status: text("status").notNull().default("drafted"),
+    error: text("error"),
+  },
+  (t) => [index("notifications_created_idx").on(t.createdAt)],
 );
 
 /**

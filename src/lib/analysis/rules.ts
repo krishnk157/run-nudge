@@ -306,10 +306,13 @@ export const restingHrRule: Rule = async (ctx) => {
     ctx.cache?.restingHr.set(iso, win);
   }
 
-  if (
-    win.nRecent < cfg.minRestingRecentNights ||
-    win.nBase < cfg.minRestingBaselineNights
-  ) {
+  const byRecent = win.nRecent < cfg.minRestingRecentNights;
+  const byBaseline = win.nBase < cfg.minRestingBaselineNights;
+  if (byRecent || byBaseline) {
+    // Report whichever condition actually failed. The first version always
+    // reported the recent-nights dimension, so a baseline failure showed
+    // have=6 need=3 — numbers that look satisfied. Found by the LLM judge,
+    // whose rationale flagged the contradiction on a simulated event.
     return {
       rule: "resting_hr_drift",
       status: "ineligible",
@@ -318,9 +321,11 @@ export const restingHrRule: Rule = async (ctx) => {
         overnightNightsBaseline: win.nBase,
       },
       eligibility: needs(
-        "needs nights with the watch worn to sleep — daytime readings are a different measurement and can't be compared",
-        win.nRecent,
-        cfg.minRestingRecentNights,
+        byRecent
+          ? "needs recent nights with the watch worn to sleep — daytime readings are a different measurement and can't be compared"
+          : "needs more history of watch-worn nights to form a baseline to compare against",
+        byRecent ? win.nRecent : win.nBase,
+        byRecent ? cfg.minRestingRecentNights : cfg.minRestingBaselineNights,
       ),
     };
   }
