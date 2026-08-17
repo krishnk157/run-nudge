@@ -243,8 +243,8 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > vision pipeline, a confirmation flow. It gets **its own day (§5, Day 7)** rather than being
 > absorbed into Day 6, and deploy moves to Day 8. Approved 2026-08-09.
 - Webhook receiver → async pipeline: ingest → recompute → LLM significance judgment → notification ✅ *Day 4 (delivery is Day 5)*
-- Notification channel (email or Telegram) with LLM-written insight messages
-- Weekly digest (scheduled job)
+- Notification channel (~~email or~~ Telegram) with LLM-written insight messages ✅ *Day 5*
+- Weekly digest (scheduled job) ✅ *Day 5*
 - Chat with tool-calling (`query_metrics`, `render_chart`) + dashboard
 - Deployed on Vercel, live webhook registered
 
@@ -421,6 +421,33 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 - Scheduled weekly digest job (Vercel cron): week's stats → LLM-written summary → send
 - Notification log table (what was sent, when, triggered by what — also your debugging trail)
 - **Outcome:** real notification arrives on your phone/inbox from a real or simulated run event
+
+> **▸ Day 5 — done (2026-08-17).** A real notification arrived on the phone from the pipeline
+> (`judged: notify · sent`), and the weekly digest sent on an empty week. Detail in
+> [DAY-5.md](DAY-5.md).
+>
+> **Telegram, not email — inverting this plan's §3 default.** The stated outcome is a phone
+> push, and email arrives in an inbox you check rather than as a notification you don't. No
+> domain verification, no deliverability work whose omission would put a notification in spam —
+> which for this system is indistinguishable from the judge choosing silence. Delivery sits
+> behind a `Notifier` interface, so adding email later is one implementation, not a rewrite.
+>
+> **Judgment and delivery are separate:** the row is written before the send, so a send failure
+> never re-judges, a judgment is recorded even with no channel configured, and retries are
+> bounded by age. Notify rows send **inline** from the webhook — the promise is a message
+> minutes after the run, not on the next tick; the hourly sweep exists only for outages.
+>
+> **The digest degrades in the opposite direction to alerts.** Alerts collapse to silence
+> (Day 4); the digest is scheduled and expected, so silence would look like a broken cron — it
+> falls back to a deterministic body built from SQL. Same failure surface, opposite correct
+> answer, because the cost asymmetry is reversed.
+>
+> **The honesty constraint transferred without extra prompting.** First live digest, on an empty
+> week: *"Most of the other checks stayed dormant this week for lack of data rather than because
+> they came back clear."*
+>
+> **Still unverified:** Vercel Cron actually firing (nothing is deployed — Day 8), retry after a
+> real outage, and digest quality on a *busy* week — the one live run had zero sessions.
 
 ### Day 6 — Chat + dashboard
 

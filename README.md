@@ -6,7 +6,7 @@ See [docs/PLAN.md](docs/PLAN.md) for the full plan and rationale.
 
 ## Status
 
-**Day 4 — event pipeline + LLM judgment.** Strava ingestion (Day 1), Garmin metrics via a Python sidecar (Day 2), a deterministic insight engine with capability-gated rules (Day 3), and a webhook-driven pipeline where Claude judges whether findings warrant a notification (Day 4). Delivery lands Day 5.
+**Day 5 — notifications live.** Strava ingestion (Day 1), Garmin metrics via a Python sidecar (Day 2), a deterministic insight engine with capability-gated rules (Day 3), and a webhook-driven pipeline where Claude judges whether findings warrant a notification (Day 4). Notifications now arrive on Telegram, with a weekly digest on cron (Day 5).
 
 ## Stack
 
@@ -100,6 +100,8 @@ are what gets a Garmin account rate-limited.
 | `npm run sensitivity`                       | Sweep every threshold: plateau, cliff, inert |
 | `npm run simulate`                          | Push curated events through the full pipeline |
 | `npm run webhook -- view\|create\|delete`    | Manage the Strava webhook subscription       |
+| `npm run notify -- chat-id\|test\|pending`   | Telegram setup and delivery                  |
+| `npm run notify -- digest [--dry]`          | Build (and send) this week's digest          |
 | `.venv/bin/python scripts/garmin_sync.py`   | Pull Garmin daily metrics into the DB        |
 
 > `db:generate` prompts interactively when it can't tell a column rename from a

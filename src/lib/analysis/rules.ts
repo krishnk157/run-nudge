@@ -353,17 +353,36 @@ export const restingHrRule: Rule = async (ctx) => {
  * sessions are recorded in Garmin's strength mode — all 10 historical gym
  * sessions return 404 for exercise sets, so there is nothing to count yet.
  */
-export const strengthRule: Rule = async () => {
-  const [r] = await sql<{ n: number }[]>`
-    select count(*)::int as n from information_schema.tables
-    where table_schema = 'public' and table_name = 'strength_sets'`;
+export const strengthRule: Rule = async (ctx) => {
+  const iso = isoDay(ctx.asOf);
+  const [r] = await sql<{ sessions: number }[]>`
+    select count(*)::int as sessions
+    from activities
+    where sport_type = 'WeightTraining'
+      and started_at_local <= ${iso}::date
+      and started_at_local > ${iso}::date - 28`;
 
+  const sessions = r?.sessions ?? 0;
+
+  // Phrasing matters here. The first version reported
+  // `sessionsWithSetData: 0` as a constant and the weekly digest repeated it
+  // as "none of the gym sessions carry per-set data" — a claim about Garmin
+  // that this rule had never checked. It happened to be true, which is worse
+  // than being wrong: an unverified assertion that survives by luck.
+  //
+  // Ingestion of per-set data isn't built yet (deferred from Day 2), so the
+  // only honest statement is about what has been ingested, not about what
+  // Garmin holds.
   return {
     rule: "strength_progression",
     status: "ineligible",
-    data: { sessionsWithSetData: 0, tableExists: (r?.n ?? 0) > 0 },
+    data: {
+      gymSessionsLast28Days: sessions,
+      setDataIngested: false,
+      note: "per-set ingestion not implemented; this rule cannot see set data yet",
+    },
     eligibility: needs(
-      "needs gym sessions recorded in Garmin's strength mode — earlier sessions have no per-set data",
+      "no per-set strength data has been ingested yet — the ingestion for it isn't built, so set-level progression can't be assessed either way",
       0,
       1,
     ),
