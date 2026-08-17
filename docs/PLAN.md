@@ -475,6 +475,16 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 ### Day 8 — Deploy + polish
 
 - Vercel deploy; re-register webhook against public URL; cron live
+
+> **▸ Added after Day 4 — the first smoke test after registering is a manual activity.**
+> Real Strava delivery was deliberately not tunnel-tested on Day 4 (the subscription would
+> have pointed at a disposable URL). Day 8 therefore carries two untested things at once: the
+> real webhook contract and `after()` on Vercel. So immediately after `npm run webhook --
+> create <prod-url>` succeeds (which itself proves the GET handshake against real Strava):
+> create a **manual activity** in Strava → watch `webhook_events` + `notifications` for the
+> POST landing and the pipeline completing → rename it (update path) → delete it (delete
+> path, which also cleans the test data out of history). Only then wait for a real run.
+> A controlled, deletable event beats debugging both unknowns during the demo moment.
 - Error/empty states; README with architecture diagram telling the "chat can't do this" story
 - Test set: 8–10 chat questions + 3–4 simulated events with expected notification behavior
 - **Outcome:** live system that messages you after your next real run — that moment is your demo
