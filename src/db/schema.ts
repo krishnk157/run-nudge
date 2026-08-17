@@ -254,9 +254,17 @@ export const notifications = pgTable(
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
 
-    /** 'drafted' now; Day 5 delivery adds 'sent' | 'send_failed'. */
+    /** 'drafted' | 'sent' | 'send_failed'. Not terminal: failures are retried. */
     status: text("status").notNull().default("drafted"),
     error: text("error"),
+
+    // Delivery (Day 5). Kept separate from the judgment above so a send
+    // failure never looks like a judgment failure — and so the channel can
+    // change without rewriting how decisions are recorded.
+    channel: text("channel"),
+    /** The channel's own id for the sent message (Telegram message_id). */
+    externalId: text("external_id"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
   },
   (t) => [index("notifications_created_idx").on(t.createdAt)],
 );

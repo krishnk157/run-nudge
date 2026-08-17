@@ -17,7 +17,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "simulate": "tsx --tsconfig tsconfig.json scripts/simulate.ts",
-    "webhook": "tsx --tsconfig tsconfig.json scripts/webhook.ts"
+    "webhook": "tsx --tsconfig tsconfig.json scripts/webhook.ts",
+    "notify": "tsx --tsconfig tsconfig.json scripts/notify.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",

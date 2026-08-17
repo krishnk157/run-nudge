@@ -3,6 +3,7 @@ import { notifications, webhookEvents } from "@/db/schema";
 import { computeInsights } from "@/lib/analysis/engine";
 import { deleteActivity, upsertActivities } from "@/lib/ingest/activities";
 import { judgeInsights } from "@/lib/llm/judge";
+import { defaultNotifier, deliverPending } from "@/lib/notify/deliver";
 import { StravaClient } from "@/lib/strava/client";
 import { eq } from "drizzle-orm";
 
@@ -123,9 +124,19 @@ export async function processEvent(
       })
       .returning({ id: notifications.id });
 
+    // Deliver immediately — the whole point is that the message arrives
+    // minutes after the run, not on the next cron tick. A send failure leaves
+    // the row as `send_failed` for the sweep to retry; it never re-judges,
+    // and it never turns a delivery problem into a pipeline failure.
+    let delivered: string | null = null;
+    if (decision === "notify") {
+      const summary = await deliverPending(defaultNotifier(), { limit: 5 });
+      delivered = summary.sent > 0 ? "sent" : (summary.errors[0] ?? "not sent");
+    }
+
     return await finish({
       status: "processed",
-      detail: `judged: ${decision}`,
+      detail: `judged: ${decision}${delivered ? ` · ${delivered}` : ""}`,
       notificationId: row.id,
       decision,
     });
