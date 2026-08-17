@@ -242,7 +242,7 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > **Scope honesty:** nutrition is nearer a second product than a feature — three tables, a
 > vision pipeline, a confirmation flow. It gets **its own day (§5, Day 7)** rather than being
 > absorbed into Day 6, and deploy moves to Day 8. Approved 2026-08-09.
-- Webhook receiver → async pipeline: ingest → recompute → LLM significance judgment → notification
+- Webhook receiver → async pipeline: ingest → recompute → LLM significance judgment → notification ✅ *Day 4 (delivery is Day 5)*
 - Notification channel (email or Telegram) with LLM-written insight messages
 - Weekly digest (scheduled job)
 - Chat with tool-calling (`query_metrics`, `render_chart`) + dashboard
@@ -392,6 +392,26 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > Note the webhook handler must **not** wait out a rate limit (the API client makes waiting
 > opt-in per caller for exactly this reason): Strava expects a fast response and retries, and a
 > serverless function that sleeps is billed until the platform kills it.
+
+> **▸ Day 4 — done (2026-08-17).** Simulated events produce correct decisions + drafted
+> messages end-to-end. Detail in [DAY-4.md](DAY-4.md).
+>
+> The judge (claude-opus-5, structured output) receives ineligible findings with their unlock
+> reasons and is forbidden from presenting an unevaluated rule as checked-and-fine. On the
+> 5 Jul comeback — where Garmin said 4.8 VERY_HIGH — it notified with *"first session in 28
+> days… the load check couldn't be evaluated at all"*, and its rationale shows it saw the
+> suppressed ratio and refused to quote it. Every failure mode (refusal, unparseable output,
+> notify-without-message) degrades to logged silence: for a notification system the safe
+> failure is saying nothing.
+>
+> **The judge found a Day 3 bug on its first batch**: its rationale flagged an eligibility
+> payload showing have=6 need=3 on a rule that had declined — the payload always reported the
+> recent-nights dimension even when the baseline was what failed. The candid-rationale channel
+> was built as a tuning trail and turned out to be a second reviewer.
+>
+> **Still unverified:** a real webhook from Strava (no public URL until Day 8) and after()
+> semantics on Vercel in production. Severity is mildly nondeterministic across identical
+> inputs (notify/skip is stable) — the eval set should treat notify/skip as the contract.
 - Local testing via tunnel (ngrok-style)
 - **Outcome:** simulated webhook event produces a sensible notification decision + drafted message end-to-end
 
@@ -455,6 +475,16 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 ### Day 8 — Deploy + polish
 
 - Vercel deploy; re-register webhook against public URL; cron live
+
+> **▸ Added after Day 4 — the first smoke test after registering is a manual activity.**
+> Real Strava delivery was deliberately not tunnel-tested on Day 4 (the subscription would
+> have pointed at a disposable URL). Day 8 therefore carries two untested things at once: the
+> real webhook contract and `after()` on Vercel. So immediately after `npm run webhook --
+> create <prod-url>` succeeds (which itself proves the GET handshake against real Strava):
+> create a **manual activity** in Strava → watch `webhook_events` + `notifications` for the
+> POST landing and the pipeline completing → rename it (update path) → delete it (delete
+> path, which also cleans the test data out of history). Only then wait for a real run.
+> A controlled, deletable event beats debugging both unknowns during the demo moment.
 - Error/empty states; README with architecture diagram telling the "chat can't do this" story
 - Test set: 8–10 chat questions + 3–4 simulated events with expected notification behavior
 - **Outcome:** live system that messages you after your next real run — that moment is your demo
