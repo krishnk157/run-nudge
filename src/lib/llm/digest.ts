@@ -19,6 +19,19 @@ import { JUDGE_MODEL } from "./judge";
 export interface WeekStats {
   weekStart: string;
   weekEnd: string;
+  /**
+   * When activity data was last pulled from Strava, and how stale that is.
+   *
+   * This exists because of a real incident: the first live digest reported
+   * "no sessions recorded" for a week in which four gym sessions happened.
+   * The data was 8 days old — webhooks aren't registered yet, so nothing was
+   * keeping it fresh — and the digest had no way to know it was blind.
+   *
+   * A confident falsehood is the worst thing a notification system can emit.
+   * "No sessions" and "no data about sessions" must not look the same.
+   */
+  lastSyncedAt: string | null;
+  daysSinceSync: number | null;
   sessions: number;
   hours: number;
   bySport: { sportType: string; sessions: number; hours: number }[];
@@ -58,6 +71,13 @@ export async function weekStats(asOf = new Date()): Promise<WeekStats> {
     from activities
     where started_at_local >= ${end}::date - 14`;
 
+  const [fresh] = await sql<
+    { last_sync: string | null; days: number | null }[]
+  >`
+    select to_char(max(ingested_at),'YYYY-MM-DD HH24:MI') as last_sync,
+           extract(day from now() - max(ingested_at))::int as days
+    from activities`;
+
   const bySport = await sql<
     { sport_type: string; sessions: number; hours: number }[]
   >`
@@ -92,6 +112,8 @@ export async function weekStats(asOf = new Date()): Promise<WeekStats> {
   }
 
   return {
+    lastSyncedAt: fresh?.last_sync ?? null,
+    daysSinceSync: fresh?.days ?? null,
     weekStart: new Date(
       new Date(`${end}T00:00:00Z`).getTime() - 7 * 86_400_000,
     )
@@ -130,13 +152,19 @@ Unlike the per-activity alerts — which stay silent unless something matters �
 
 Alongside the week's numbers you receive the analysis engine's current findings. Rules with status "ineligible" could NOT be evaluated — the data isn't there. Never present an ineligible rule as checked-and-fine. You may mention what would unlock a dormant rule at most once, and only when genuinely useful.
 
+# Data freshness — do not state absence you can't vouch for
+
+The input carries "lastSyncedAt" and "daysSinceSync": when activity data was last pulled from Strava. If "daysSinceSync" is 2 or more, sessions from the last few days may simply not have been ingested yet.
+
+In that case you must NOT report zero or low session counts as fact. Say the data may be incomplete and give the last sync date. "No sessions were recorded" and "no sessions have been synced" are different claims, and only the second one is safe when the data is stale.
+
 # Style
 
 - 3 to 6 sentences, plain prose. No headings, no bullet lists, no emoji, no exclamation marks.
 - Lead with what actually happened this week, then anything worth noticing about it.
 - Compare to the prior week only when the comparison is meaningful.
 - No medical advice and no training prescriptions.
-- If there were zero sessions, say so plainly in one or two sentences.
+- If there were zero sessions AND the data is fresh, say so plainly in one or two sentences. If the data is stale, say instead that none have been synced and give the last sync date.
 
 # Output
 
@@ -231,8 +259,15 @@ export async function writeDigest(asOf = new Date()): Promise<{
  * dull: the point is that the weekly cadence never silently stops.
  */
 export function fallbackBody(s: WeekStats): string {
+  const stale =
+    s.daysSinceSync != null && s.daysSinceSync >= 2
+      ? ` Activity data was last synced ${s.lastSyncedAt}, ${s.daysSinceSync} days ago, so recent sessions may be missing.`
+      : "";
   if (s.sessions === 0) {
-    return `No sessions recorded between ${s.weekStart} and ${s.weekEnd}.`;
+    // Never assert an empty week on stale data — see WeekStats.lastSyncedAt.
+    return stale
+      ? `No sessions have been synced for ${s.weekStart} to ${s.weekEnd}.${stale}`
+      : `No sessions recorded between ${s.weekStart} and ${s.weekEnd}.`;
   }
   const sports = s.bySport
     .map((b) => `${b.sessions} × ${b.sportType}`)
@@ -240,5 +275,5 @@ export function fallbackBody(s: WeekStats): string {
   const runLine = s.runs.length
     ? ` Runs: ${s.runs.map((r) => `${r.km} km at ${r.pacePerKm}/km`).join("; ")}.`
     : "";
-  return `${s.sessions} sessions, ${s.hours} hours (${sports}).${runLine} Previous week: ${s.priorWeekSessions} sessions, ${s.priorWeekHours} hours.`;
+  return `${s.sessions} sessions, ${s.hours} hours (${sports}).${runLine} Previous week: ${s.priorWeekSessions} sessions, ${s.priorWeekHours} hours.${stale}`;
 }

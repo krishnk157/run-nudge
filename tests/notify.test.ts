@@ -94,6 +94,8 @@ describe("digest fallback", () => {
   const base: WeekStats = {
     weekStart: "2026-08-11",
     weekEnd: "2026-08-18",
+    lastSyncedAt: "2026-08-18 09:00",
+    daysSinceSync: 0,
     sessions: 0,
     hours: 0,
     distanceKm: 0,
@@ -110,6 +112,20 @@ describe("digest fallback", () => {
     expect(fallbackBody(base)).toBe(
       "No sessions recorded between 2026-08-11 and 2026-08-18.",
     );
+  });
+
+  it("refuses to assert an empty week when the data is stale", () => {
+    // The incident this guards: the first live digest reported "no sessions
+    // recorded" for a week containing four gym sessions, because activity
+    // data was 8 days old and nothing told it so.
+    const body = fallbackBody({
+      ...base,
+      lastSyncedAt: "2026-08-09 22:14",
+      daysSinceSync: 8,
+    });
+    expect(body).toContain("have been synced");
+    expect(body).not.toContain("No sessions recorded");
+    expect(body).toContain("8 days ago");
   });
 
   it("summarises a real week with only computed numbers", () => {

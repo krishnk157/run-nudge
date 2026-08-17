@@ -88,6 +88,38 @@ Three dots and a hyphen in one sentence. Every notification this product sends i
 
 ---
 
+## 6a. The incident: the system confidently told a falsehood
+
+The first live digest went out and said:
+
+> *"No sessions were recorded between 10 and 17 August, matching the prior week, which was also empty."*
+
+**Four gym sessions happened in that window** — 10, 12, 13 and 17 August, all recorded on the Forerunner 265. The athlete said so; a `npm run backfill` pulled them in seconds.
+
+The digest wasn't lying about its data. Its data was 8 days old. The last backfill ran on 9 August, webhooks aren't registered yet (Day 8), and **nothing in the system was responsible for keeping activity data fresh**. The digest had no way to know it was blind, so it reported an absence of rows as an absence of training.
+
+This is the worst failure mode this product has. Every design decision so far — degrade to silence, never present ineligible as fine, quote numbers verbatim — exists to stop the system saying something confidently wrong. And then it did, on its first real week, through a gap none of those rules covered: they all police *how findings are phrased*, and none of them asked *whether the underlying data was current*.
+
+### Two fixes
+
+**1. The digest now knows how fresh its data is.** `weekStats()` returns `lastSyncedAt` and `daysSinceSync`, and the prompt draws the distinction explicitly:
+
+> *"'No sessions were recorded' and 'no sessions have been synced' are different claims, and only the second one is safe when the data is stale."*
+
+The deterministic fallback does the same, with a regression test pinning it. On the corrected run the model volunteered the provenance unprompted: *"Data is current as of the 2026-08-17 17:54 sync, so the session count is complete."*
+
+**2. A second, quieter falsehood in the same digest.** It also said *"none of the gym sessions carry per-set data"* — and the strength rule that fed it had **hardcoded `sessionsWithSetData: 0`** since Day 3 without ever checking Garmin.
+
+I checked, and it was true: all four new sessions return `GarminConnectNotFoundError` for exercise sets. Which is the uncomfortable part — **the assertion was correct by luck, not by verification**, and an unverified claim that happens to be true is harder to catch than one that's wrong.
+
+Worse, the phrasing put the gap on the athlete ("recording them in Garmin's strength mode would make that view possible") when per-set ingestion simply isn't built — a Day 2 deferral. The rule now reports only what it can actually see, and the corrected digest reflects it: *"that one is a tooling gap, not something you can fix by training differently."*
+
+### What generalizes
+
+- **Freshness is part of correctness.** A pipeline that reasons over a database inherits that database's staleness, and none of its honesty rules will notice.
+- **This is the seventh silent bug, and the first that reached a human.** The other six were caught by replays, tests, or the judge's own rationale. This one was caught because the athlete knew what he'd done that week — the only oracle the system can't replicate.
+- **The system is currently blind between manual backfills.** Webhooks land on Day 8; until then, `npm run backfill` before any digest, and the staleness warning covers the case where that's forgotten.
+
 ## 7. What was verified
 
 | Check | Result |
@@ -95,7 +127,8 @@ Three dots and a hyphen in one sentence. Every notification this product sends i
 | Live Telegram send | ✓ message_id 4, reserved characters rendered correctly |
 | Full pipeline → phone | ✓ 1 Jun spike: `judged: notify · sent` |
 | Verbatim-numbers rule held on delivery | ✓ 1.51 / 44.5 / 29.4 quoted, none derived |
-| Weekly digest, live | ✓ empty week reported plainly, honesty constraint held |
+| Weekly digest, live | ✓ busy week (4 sessions) and empty week both handled |
+| Data-staleness guard | ✓ stale input reports "not synced", not "no sessions" |
 | Deterministic fallback | ✓ `--dry` path, no model call |
 | Cron auth | ✓ 401 unset / 401 wrong / 200 correct |
 | Unconfigured channel | ✓ reports "not configured", doesn't throw |
@@ -106,9 +139,8 @@ Three dots and a hyphen in one sentence. Every notification this product sends i
 
 - **Vercel Cron actually firing.** The routes and schedule are correct by spec; nothing has run on Vercel because nothing is deployed. Day 8.
 - **Retry-after-outage in the wild.** `requeueFailed` is unit-shaped logic exercised by an empty queue, not by a real Telegram outage.
-- **Digest quality across varied weeks.** n=1, and that one was empty. The interesting case — a busy week with a real trend — hasn't happened yet because training stopped on 26 July.
-
-That last one is worth stating plainly: the digest has never summarized an actual training week. It handled the empty case well, which is the harder case for honesty but the easier one for prose.
+- **Digest quality across varied weeks.** Now n=2 (one empty, one with four gym sessions), which is still small. The case never seen is a week with runs in it — nothing has been run since 26 July.
+- **Whether the staleness guard fires in production.** It's unit-tested and the prompt carries it, but the only live run since the fix had fresh data.
 
 ---
 
@@ -123,6 +155,8 @@ That last one is worth stating plainly: the digest has never summarized an actua
 **Channel abstraction** — delivery behind an interface so the product decision (Telegram vs email) doesn't reach into the pipeline.
 
 **Honest-uncertainty prompting, generalized** — the constraint written for per-event alerts transferred to the digest and held on the first live run without additional prompting.
+
+**Data-freshness as a correctness property** — a system that reasons over a database inherits its staleness, and prompt-level honesty rules don't catch it. Found the hard way: a confident "no sessions this week" during a week with four. The fix distinguishes *no sessions* from *no synced sessions* at both the model and deterministic layers.
 
 ---
 
