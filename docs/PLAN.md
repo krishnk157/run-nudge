@@ -245,7 +245,7 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 - Webhook receiver → async pipeline: ingest → recompute → LLM significance judgment → notification ✅ *Day 4 (delivery is Day 5)*
 - Notification channel (~~email or~~ Telegram) with LLM-written insight messages ✅ *Day 5*
 - Weekly digest (scheduled job) ✅ *Day 5*
-- Chat with tool-calling (`query_metrics`, `render_chart`) + dashboard
+- Chat with tool-calling (`query_metrics`, `render_chart`) + dashboard ✅ *Day 6*
 - Deployed on Vercel, live webhook registered
 
 ### Stretch
@@ -478,6 +478,34 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 >
 > Charts follow the §1a metrics: cross-modal weekly load, aerobic efficiency, strength volume,
 > bodyweight, and intake as a **weekly average** rather than daily totals.
+
+> **▸ Day 6 — done (2026-08-20).** Chat answers questions from live SQL with the query shown,
+> and the dashboard surfaces the proactive layer's own reasoning. Detail in [DAY-6.md](DAY-6.md).
+>
+> **Built on the Vercel AI SDK + AI Elements**, as this section specified. A first pass used the
+> Anthropic SDK directly (consistent with Days 4–5) and was rewritten — the AI SDK's typed tool
+> parts make rendering a tool result as a component type-safe end to end, and `useChat` removes
+> the hand-rolled transport entirely.
+>
+> **`query_metrics` is guarded in layers, outermost first:** a Postgres `READ ONLY` transaction,
+> a statement timeout, a row cap, then keyword/shape checks. The ordering is the point —
+> `select nextval(...)` passes every string check and is rejected by the transaction. The guards
+> live in `queryMetrics`, not the tool definition, so swapping SDKs could not weaken them; that
+> was proved by actually swapping SDKs.
+>
+> **Charts stay hand-rolled SVG** rather than Recharts: never drawing across a gap is precisely
+> what a charting library does by default.
+>
+> **The honesty constraint transferred a third time, unprompted** — *"the most recent sync was
+> 17 Aug, so anything you did on 18–20 Aug wouldn't be in the database yet — that's a data gap,
+> not necessarily rest."*
+>
+> **A real inconsistency caught:** weekly load was initially `sum(suffer_score)` in SQL, so the
+> dashboard could show a load the engine had never computed and that contradicted every
+> notification sent. It now calls the engine. One system, one definition of load.
+>
+> **Still unverified:** the 5s statement timeout (tables too small to trigger it), adversarial
+> input against the SQL tool, the dashboard on a large dataset, and mobile layout.
 
 ### Day 7 — Nutrition + body composition
 
