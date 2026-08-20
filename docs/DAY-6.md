@@ -69,7 +69,7 @@ The genuine win is **typed tool parts**. `part.type === "tool-render_chart"` is 
 
 ---
 
-## 4. Five integration bugs, all found by running it
+## 4. Six integration bugs, all found by running it
 
 **`shadcn init --defaults` picked the wrong style.** It chose `base-nova`, which is built on Base UI; AI Elements is built against the Radix-based styles. Eight type errors in `prompt-input.tsx` — `openDelay` not existing, `BaseUIEvent` mismatches — and `next build` failed outright. Switching to `new-york` and reinstalling cleared all but one, which was a genuine version skew in vendored code and is now pinned with a comment.
 
@@ -95,7 +95,13 @@ The fix is a **token bridge**: map shadcn's vocabulary onto the instrument-panel
 
 The two vocabularies collided on exactly one name: shadcn's `--accent` is a hover surface, ours was the teal brand colour. Ours yielded and became `--brand`, on the reasoning that the shadcn names are fixed by third-party components and ours are not.
 
-Seven of these nine bugs had their symptom somewhere other than their cause. That's the pattern of the project, and both of today's layout bugs are the extreme case: the code at the symptom was correct.
+**The same root cause again, one layer down.** With the bridge in, prose was readable but SQL and JSON still weren't — dark navy on near-black. Shiki emits *both* themes and chooses between them purely through Tailwind `dark:` variants, and shadcn defines that variant as `&:is(.dark *)` — a class this app never sets. So the token bridge fixed everything that reads colour from a CSS variable and nothing that reads it from a `dark:` utility.
+
+Redefining the variant as `@media (prefers-color-scheme: dark)` points AI Elements at the same signal the rest of the app already uses. One line, and it covers every `dark:` utility in the vendored components rather than just the code blocks.
+
+Worth naming the pattern: **installing a design system is not the same as wiring it up.** Three separate symptoms — unreadable prose, unreadable code, a white scrollbar (`color-scheme` was never declared either) — all traced back to shadcn assuming a class-based theme toggle that this app doesn't have.
+
+Eight of these ten bugs had their symptom somewhere other than their cause. That's the pattern of the project, and both of today's layout bugs are the extreme case: the code at the symptom was correct.
 
 ---
 

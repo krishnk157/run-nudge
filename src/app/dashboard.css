@@ -21,6 +21,10 @@
   --crit: #a33f35;
   --dormant: #869aa5;
 
+  /* tells the browser to render scrollbars, and any native control, for the
+     active theme — without it the panel's scrollbar is a white stripe. */
+  color-scheme: light dark;
+
   --font-data: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
 }

@@ -2,7 +2,19 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+/*
+ * shadcn ships dark mode as a `.dark` class you toggle in JS. This app has no
+ * theme switcher — the dashboard follows the OS via prefers-color-scheme — so
+ * that class was never set and every `dark:` utility in the vendored
+ * components stayed inert. Most of that was invisible because the token bridge
+ * in dashboard.css already handles colour, but Shiki is the exception: it
+ * emits both themes and picks between them purely through `dark:` variants,
+ * so code blocks rendered in github-light on a dark ground.
+ *
+ * Pointing the variant at the media query makes AI Elements read the same
+ * signal as the rest of the app.
+ */
+@custom-variant dark (@media (prefers-color-scheme: dark));
 
 @theme inline {
   --color-background: var(--background);
