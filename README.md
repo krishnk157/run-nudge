@@ -6,11 +6,12 @@ See [docs/PLAN.md](docs/PLAN.md) for the full plan and rationale.
 
 ## Status
 
-**Day 5 — notifications live.** Strava ingestion (Day 1), Garmin metrics via a Python sidecar (Day 2), a deterministic insight engine with capability-gated rules (Day 3), and a webhook-driven pipeline where Claude judges whether findings warrant a notification (Day 4). Notifications now arrive on Telegram, with a weekly digest on cron (Day 5).
+**Day 6 — chat + dashboard.** Strava ingestion (Day 1), Garmin metrics via a Python sidecar (Day 2), a deterministic insight engine with capability-gated rules (Day 3), and a webhook-driven pipeline where Claude judges whether findings warrant a notification (Day 4). Notifications arrive on Telegram with a weekly digest on cron (Day 5), and a dashboard plus AI SDK chat layer answer questions from live SQL (Day 6).
 
 ## Stack
 
 - Next.js (App Router) + TypeScript
+- Vercel AI SDK + AI Elements for the chat layer; Anthropic API for the judgment layer
 - Neon Postgres + Drizzle ORM
 - Strava REST API v3 (OAuth 2 + webhooks)
 - Python sidecar for Garmin Connect (unofficial API) — isolated; the app never imports it
