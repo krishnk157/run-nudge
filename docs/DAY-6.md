@@ -69,7 +69,7 @@ The genuine win is **typed tool parts**. `part.type === "tool-render_chart"` is 
 
 ---
 
-## 4. Four integration bugs, all found by running it
+## 4. Five integration bugs, all found by running it
 
 **`shadcn init --defaults` picked the wrong style.** It chose `base-nova`, which is built on Base UI; AI Elements is built against the Radix-based styles. Eight type errors in `prompt-input.tsx` — `openDelay` not existing, `BaseUIEvent` mismatches — and `next build` failed outright. Switching to `new-york` and reinstalling cleared all but one, which was a genuine version skew in vendored code and is now pinned with a comment.
 
@@ -89,7 +89,13 @@ This one is worth remembering because **every individual rule was right**. There
 
 **Styling the wrong element in a three-div component.** `<Conversation>` looks like one element and renders three: an outer box, a scroller with an inline `height: 100%`, and the content div that the library measures to decide whether you're at the bottom. My `overflow-y: auto` landed on the content div, so it scrolled inside itself while the element `StickToBottom` actually watches never moved. The panel scrolled; auto-scroll-on-stream silently did not. Fixed by passing `scrollClassName` and styling all three layers deliberately.
 
-Six of these eight bugs had their symptom somewhere other than their cause. That's the pattern of the project, and both of today's layout bugs are the extreme case: the code at the symptom was correct.
+**A design system installed but never wired up.** With the layout fixed, the panel rendered unreadable: near-black body text and a bright white user bubble on a dark ground. Nothing was overriding anything — AI Elements is styled entirely through shadcn's token names, and shadcn puts its *light* palette on `:root` with dark gated behind a `.dark` class this app never sets. The dashboard themes itself off `prefers-color-scheme`. Two theming mechanisms, neither aware of the other, so the components were correctly rendering the light theme onto a dark page.
+
+The fix is a **token bridge**: map shadcn's vocabulary onto the instrument-panel palette once, in `dashboard.css`. Because the tokens it maps *from* already switch with the media query, the bridge needs no theme of its own — and any AI Elements component installed later is themed on arrival rather than patched afterwards.
+
+The two vocabularies collided on exactly one name: shadcn's `--accent` is a hover surface, ours was the teal brand colour. Ours yielded and became `--brand`, on the reasoning that the shadcn names are fixed by third-party components and ours are not.
+
+Seven of these nine bugs had their symptom somewhere other than their cause. That's the pattern of the project, and both of today's layout bugs are the extreme case: the code at the symptom was correct.
 
 ---
 

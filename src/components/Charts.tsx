@@ -67,7 +67,7 @@ export function LoadBars({ weekly }: { weekly: WeeklyPoint[] }) {
             y={73 - h}
             width={Math.max(1, bw - 3)}
             height={h}
-            fill="var(--accent)"
+            fill="var(--brand)"
           >
             <title>{`${w.weekStart}: load ${w.load} · ${w.gymSessions} gym, ${w.runSessions} run`}</title>
           </rect>
@@ -117,7 +117,7 @@ export function EfficiencyChart({ points }: { points: EfficiencyPoint[] }) {
             key={`seg-${i}`}
             points={seg.map((p) => `${xs(p.date)},${ys(p.index)}`).join(" ")}
             fill="none"
-            stroke="var(--accent)"
+            stroke="var(--brand)"
             strokeWidth="1.5"
             opacity={0.55}
           />
@@ -149,8 +149,8 @@ export function EfficiencyChart({ points }: { points: EfficiencyPoint[] }) {
             cx={xs(p.date)}
             cy={ys(p.index)}
             r={last ? 4 : 2.6}
-            fill={last ? "var(--accent)" : "var(--surface)"}
-            stroke="var(--accent)"
+            fill={last ? "var(--brand)" : "var(--surface)"}
+            stroke="var(--brand)"
             strokeWidth="1.5"
           >
             <title>{`${p.date}: ${p.km} km at ${p.avgHr} bpm`}</title>
@@ -189,7 +189,7 @@ export function ChatChart({
                   y={72 - h}
                   width={Math.max(1, bw - 3)}
                   height={h}
-                  fill="var(--accent)"
+                  fill="var(--brand)"
                 >
                   <title>{`${p.x}: ${p.y}`}</title>
                 </rect>
@@ -204,13 +204,13 @@ export function ChatChart({
                     <polyline
                       points={pts.map((p, i) => `${xs(i)},${ys(p.y)}`).join(" ")}
                       fill="none"
-                      stroke="var(--accent)"
+                      stroke="var(--brand)"
                       strokeWidth="1.5"
                       opacity={0.6}
                     />
                   )}
                   {pts.map((p, i) => (
-                    <circle key={i} cx={xs(i)} cy={ys(p.y)} r="3" fill="var(--accent)">
+                    <circle key={i} cx={xs(i)} cy={ys(p.y)} r="3" fill="var(--brand)">
                       <title>{`${p.x}: ${p.y}`}</title>
                     </circle>
                   ))}
