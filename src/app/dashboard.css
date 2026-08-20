@@ -232,29 +232,44 @@ body {
 }
 /*
  * The sheet is a fixed-height column: header, a scrolling middle, a pinned
- * composer. The first version left the middle unconstrained, so the
- * conversation grew past the viewport, pushed the composer off-screen and
- * overlapped the dashboard behind it. min-height:0 is the load-bearing line —
- * without it a flex child refuses to shrink below its content and never
- * scrolls.
+ * composer. min-height:0 is the load-bearing line — without it a flex child
+ * refuses to shrink below its content and never scrolls.
+ *
+ * The middle is three nested elements, not one, because that is what
+ * StickToBottom renders:
+ *
+ *   .sheet-conversation  the outer box — sized by flex, clips
+ *     .sheet-scroll      height:100% inline, and the element it scrolls
+ *       .sheet-messages  the content it measures to decide "am I at bottom"
+ *
+ * Styling the wrong one is silent: putting overflow-y on .sheet-messages made
+ * the content scroll inside itself while the element the library watches never
+ * moved, so auto-scroll-on-stream did nothing.
  */
 .sheet-conversation {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
   position: relative;
-  display: flex;
-  flex-direction: column;
+  overflow: hidden;
 }
-.sheet-messages {
-  flex: 1 1 auto;
-  min-height: 0;
+.sheet-scroll {
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+.sheet-messages {
+  /* min-height, not height: it must fill an empty panel and still grow past
+     it once there is a conversation. */
+  min-height: 100%;
   padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+/* AI Elements' empty state is `size-full`, which collapses to nothing inside
+   an auto-height flex column. Let flex give it the room instead. */
+.sheet .sheet-empty {
+  flex: 1 1 auto;
+  height: auto;
 }
 .sheet-foot { flex: 0 0 auto; }
 

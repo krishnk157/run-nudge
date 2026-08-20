@@ -69,7 +69,7 @@ The genuine win is **typed tool parts**. `part.type === "tool-render_chart"` is 
 
 ---
 
-## 4. Two integration bugs, both found by running it
+## 4. Four integration bugs, all found by running it
 
 **`shadcn init --defaults` picked the wrong style.** It chose `base-nova`, which is built on Base UI; AI Elements is built against the Radix-based styles. Eight type errors in `prompt-input.tsx` — `openDelay` not existing, `BaseUIEvent` mismatches — and `next build` failed outright. Switching to `new-york` and reinstalling cleared all but one, which was a genuine version skew in vendored code and is now pinned with a comment.
 
@@ -79,7 +79,17 @@ The lesson isn't "read the docs": it's that `--defaults` made a consequential ar
 
 The tool had worked perfectly. Serialising its result **back into the prompt** was what broke, and the symptom appeared one step later than the cause. `toJsonSafe` now converts `Date` → ISO string, `bigint` → string, and round-trips nested objects.
 
-Worth noting this is the eighth bug in the project whose symptom appeared somewhere other than its cause, and the second where a partial success was more confusing than a clean failure.
+**`backdrop-filter` on an ancestor traps `position: fixed`.** The panel opened as a clipped stub in the top-right corner: no messages visible, composer jammed under the header, the scrim dimming nothing. The CSS for `.sheet` was correct — `inset` pinned to all four edges, full-height flex column — and it was being applied.
+
+The cause was three files away. `<ChatPanel />` renders inside `<header className="top">`, and `.top` carries `backdrop-filter: blur(10px)` for the frosted sticky bar. A `backdrop-filter` (like `transform` and `filter`) makes an element a **containing block for fixed-position descendants**. So `top: 0; bottom: 0` resolved against a 64px header rather than the viewport, and the scrim's `inset: 0` covered only the header.
+
+The overlay is now portalled to `<body>`, which is the fix that survives whatever styling the header grows later. Hydration is guarded with `useSyncExternalStore`, not a `setState` in an effect.
+
+This one is worth remembering because **every individual rule was right**. There was nothing to find by re-reading the panel's CSS — the bug was a property on an unrelated element changing what a keyword *means* two subtrees down.
+
+**Styling the wrong element in a three-div component.** `<Conversation>` looks like one element and renders three: an outer box, a scroller with an inline `height: 100%`, and the content div that the library measures to decide whether you're at the bottom. My `overflow-y: auto` landed on the content div, so it scrolled inside itself while the element `StickToBottom` actually watches never moved. The panel scrolled; auto-scroll-on-stream silently did not. Fixed by passing `scrollClassName` and styling all three layers deliberately.
+
+Six of these eight bugs had their symptom somewhere other than their cause. That's the pattern of the project, and both of today's layout bugs are the extreme case: the code at the symptom was correct.
 
 ---
 

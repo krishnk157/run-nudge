@@ -2,7 +2,8 @@
 
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type ToolUIPart } from "ai";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 
 import {
   Conversation,
@@ -63,6 +64,16 @@ export function ChatPanel() {
 
   const busy = status === "submitted" || status === "streaming";
 
+  // "Has this hydrated?" — the portal needs `document`, and rendering it during
+  // SSR (or on the hydration pass, when the server produced nothing) is a
+  // mismatch. useSyncExternalStore answers false on the server and true after,
+  // without a setState-in-effect.
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -103,115 +114,146 @@ export function ChatPanel() {
         Ask <kbd>⌘K</kbd>
       </button>
 
-      <div className={`scrim ${open ? "on" : ""}`} onClick={() => setOpen(false)} />
+      {mounted &&
+        createPortal(
+          <>
+            <div
+              className={`scrim ${open ? "on" : ""}`}
+              onClick={() => setOpen(false)}
+            />
 
-      <aside
-        className={`sheet ${open ? "on" : ""}`}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Ask about your training"
-      >
-        <div className="sheet-head">
-          <span className="lbl" style={{ fontSize: 11 }}>Ask · your data only</span>
-          <div style={{ flex: 1 }} />
-          <button className="btn" style={{ padding: "3px 9px" }} onClick={() => setOpen(false)}>
-            Esc
-          </button>
-        </div>
+            <aside
+              className={`sheet ${open ? "on" : ""}`}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Ask about your training"
+            >
+              <div className="sheet-head">
+                <span className="lbl" style={{ fontSize: 11 }}>
+                  Ask · your data only
+                </span>
+                <div style={{ flex: 1 }} />
+                <button
+                  className="btn"
+                  style={{ padding: "3px 9px" }}
+                  onClick={() => setOpen(false)}
+                >
+                  Esc
+                </button>
+              </div>
 
-        <Conversation className="sheet-conversation">
-          <ConversationContent className="sheet-messages">
-            {messages.length === 0 && (
-              <ConversationEmptyState
-                title="Ask about your training"
-                description="Answers come from SQL run against your own database — every number is queried, never estimated."
-              >
-                <div className="suggestions">
-                  {SUGGESTIONS.map((s) => (
-                    <button key={s} className="suggestion" onClick={() => ask(s)}>
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </ConversationEmptyState>
-            )}
+              <Conversation className="sheet-conversation">
+                <ConversationContent
+                  className="sheet-messages"
+                  scrollClassName="sheet-scroll"
+                >
+                  {messages.length === 0 && (
+                    <ConversationEmptyState
+                      className="sheet-empty"
+                      title="Ask about your training"
+                      description="Answers come from SQL run against your own database — every number is queried, never estimated."
+                    >
+                      <div className="suggestions">
+                        {SUGGESTIONS.map((s) => (
+                          <button
+                            key={s}
+                            className="suggestion"
+                            onClick={() => ask(s)}
+                          >
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    </ConversationEmptyState>
+                  )}
 
-            {messages.map((message) => (
-              <Message from={message.role} key={message.id}>
-                <MessageContent>
-                  {message.parts.map((part, i) => {
-                    if (part.type === "text") {
-                      return <span key={i}>{part.text}</span>;
-                    }
+                  {messages.map((message) => (
+                    <Message from={message.role} key={message.id}>
+                      <MessageContent>
+                        {message.parts.map((part, i) => {
+                          if (part.type === "text") {
+                            return <span key={i}>{part.text}</span>;
+                          }
 
-                    // A chart tool result becomes an actual chart. Everything
-                    // it plots was fetched by an earlier query_metrics call —
-                    // render_chart has no data access of its own.
-                    if (part.type === "tool-render_chart") {
-                      const p = part as ToolUIPart;
-                      const out = p.output as ChartOutput | undefined;
-                      if (p.state === "output-available" && out?.points?.length) {
-                        return <ChatChart key={i} spec={out} />;
-                      }
-                      return null;
-                    }
+                          // A chart tool result becomes an actual chart. Everything
+                          // it plots was fetched by an earlier query_metrics call —
+                          // render_chart has no data access of its own.
+                          if (part.type === "tool-render_chart") {
+                            const p = part as ToolUIPart;
+                            const out = p.output as ChartOutput | undefined;
+                            if (
+                              p.state === "output-available" &&
+                              out?.points?.length
+                            ) {
+                              return <ChatChart key={i} spec={out} />;
+                            }
+                            return null;
+                          }
 
-                    if (part.type === "tool-query_metrics") {
-                      const p = part as ToolUIPart;
-                      const input = p.input as
-                        | { query?: string; purpose?: string }
-                        | undefined;
-                      return (
-                        <Tool key={i} defaultOpen={false}>
-                          <ToolHeader
-                            type={p.type}
-                            state={p.state}
-                            title={input?.purpose ?? "Querying your data"}
-                          />
-                          <ToolContent>
-                            {/* Showing the SQL is the point: an answer you
+                          if (part.type === "tool-query_metrics") {
+                            const p = part as ToolUIPart;
+                            const input = p.input as
+                              { query?: string; purpose?: string } | undefined;
+                            return (
+                              <Tool key={i} defaultOpen={false}>
+                                <ToolHeader
+                                  type={p.type}
+                                  state={p.state}
+                                  title={input?.purpose ?? "Querying your data"}
+                                />
+                                <ToolContent>
+                                  {/* Showing the SQL is the point: an answer you
                                 cannot check is one you must trust blindly. */}
-                            <ToolInput input={input?.query ?? p.input} />
-                            <ToolOutput output={p.output} errorText={p.errorText} />
-                          </ToolContent>
-                        </Tool>
-                      );
-                    }
+                                  <ToolInput input={input?.query ?? p.input} />
+                                  <ToolOutput
+                                    output={p.output}
+                                    errorText={p.errorText}
+                                  />
+                                </ToolContent>
+                              </Tool>
+                            );
+                          }
 
-                    return null;
-                  })}
-                </MessageContent>
-              </Message>
-            ))}
-          </ConversationContent>
-          <ConversationScrollButton />
-        </Conversation>
+                          return null;
+                        })}
+                      </MessageContent>
+                    </Message>
+                  ))}
+                </ConversationContent>
+                <ConversationScrollButton />
+              </Conversation>
 
-        <div className="sheet-foot">
-          <PromptInput
-            onSubmit={(msg, e) => {
-              e.preventDefault();
-              ask(msg.text ?? "");
-            }}
-          >
-            <PromptInputBody>
-              <PromptInputTextarea
-                ref={inputRef}
-                value={text}
-                onChange={(e) => setText(e.currentTarget.value)}
-                placeholder="Ask about your runs, load, or lifts…"
-                disabled={busy}
-              />
-            </PromptInputBody>
-            <PromptInputFooter>
-              <span className="hint">
-                Answers come from SQL over your data — never estimated.
-              </span>
-              <PromptInputSubmit status={status} disabled={!text.trim() && !busy} />
-            </PromptInputFooter>
-          </PromptInput>
-        </div>
-      </aside>
+              <div className="sheet-foot">
+                <PromptInput
+                  onSubmit={(msg, e) => {
+                    e.preventDefault();
+                    ask(msg.text ?? "");
+                  }}
+                >
+                  <PromptInputBody>
+                    <PromptInputTextarea
+                      ref={inputRef}
+                      value={text}
+                      onChange={(e) => setText(e.currentTarget.value)}
+                      placeholder="Ask about your runs, load, or lifts…"
+                      disabled={busy}
+                    />
+                  </PromptInputBody>
+                  <PromptInputFooter>
+                    <span className="hint">
+                      Answers come from SQL over your data — never estimated.
+                    </span>
+                    <PromptInputSubmit
+                      status={status}
+                      disabled={!text.trim() && !busy}
+                    />
+                  </PromptInputFooter>
+                </PromptInput>
+              </div>
+            </aside>
+          </>,
+          document.body,
+        )}
     </>
   );
 }
