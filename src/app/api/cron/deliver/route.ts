@@ -14,6 +14,13 @@ export const maxDuration = 60;
  *
  * Failed sends are requeued (bounded by age) before the sweep, so a transient
  * outage self-heals on the next tick instead of losing the notification.
+ *
+ * Once a day, not hourly: Vercel's Hobby plan permits one cron run per day and
+ * rejects the deploy outright otherwise — a platform limit that changed the
+ * design rather than just the schedule. The compensation is that the webhook
+ * path requeues stale failures before it delivers, so an activity is what
+ * usually heals a failed send and this route is genuinely the backstop it was
+ * always described as.
  */
 export async function GET(req: NextRequest) {
   const auth = authorizeCron(req);
