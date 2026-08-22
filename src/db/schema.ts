@@ -470,6 +470,37 @@ export const mealItems = pgTable(
   (t) => [index("meal_items_meal_idx").on(t.mealId)],
 );
 
+/**
+ * Every model call, with its tokens.
+ *
+ * Added because "we made it cheaper" was, up to this point, an argument rather
+ * than a measurement — chat spend in particular was completely invisible,
+ * since only the notification path recorded any usage at all. Cache reads and
+ * writes are separate columns because they bill at different multiples of the
+ * input price (0.1x and 1.25x), so a single "input tokens" number cannot be
+ * turned back into a cost.
+ */
+export const llmCalls = pgTable(
+  "llm_calls",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** 'judge' | 'digest' | 'chat' */
+    role: text("role").notNull(),
+    model: text("model").notNull(),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+    /** Tool-loop steps, for chat. One call here can be several API round trips. */
+    steps: integer("steps"),
+    ms: integer("ms"),
+  },
+  (t) => [index("llm_calls_created_idx").on(t.createdAt)],
+);
+
 export type Activity = typeof activities.$inferSelect;
 export type NewActivity = typeof activities.$inferInsert;
 export type StravaToken = typeof stravaTokens.$inferSelect;
@@ -479,3 +510,4 @@ export type Meal = typeof meals.$inferSelect;
 export type MealItem = typeof mealItems.$inferSelect;
 export type BodyLog = typeof bodyLog.$inferSelect;
 export type GoalPhase = typeof goalPhases.$inferSelect;
+export type LlmCall = typeof llmCalls.$inferSelect;

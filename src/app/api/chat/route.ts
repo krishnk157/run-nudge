@@ -4,7 +4,8 @@ import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from 
 import { chatTools } from "@/lib/chat/aiTools";
 import { chatSystem } from "@/lib/chat/prompt";
 import { athleteToday } from "@/lib/time";
-import { JUDGE_MODEL } from "@/lib/llm/judge";
+import { MODELS } from "@/lib/llm/models";
+import { recordCall } from "@/lib/llm/usage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,14 +41,51 @@ export async function POST(req: Request) {
     });
   }
 
+  /*
+   * The system prompt and tool definitions come to 3,568 tokens, and a single
+   * question re-sends all of it on every step of the tool loop — write the
+   * query, read the rows, then answer. Three to six identical prefixes,
+   * seconds apart, is the exact shape prompt caching exists for: the first
+   * step pays 1.25x to write it, every later step pays 0.1x to read it.
+   *
+   * The breakpoint goes on the system message, the boundary between what never
+   * changes and what changes every turn. Putting it any later would cache the
+   * conversation too, and the conversation is different each time.
+   *
+   * Worth stating what this does *not* do: chat is bursty, so a question asked
+   * an hour after the last one still pays the write. This helps within a
+   * question, not across a day.
+   */
+  const startedAt = Date.now();
   const result = streamText({
-    model: anthropic(JUDGE_MODEL),
-    // Per request, and on the athlete's clock: a module-level UTC date got
-    // a meal filed to the wrong day twice over.
-    system: chatSystem(await athleteToday()),
+    model: anthropic(MODELS.chat),
+    // The object form of `instructions` rather than a bare string, which is
+    // what carries the cache breakpoint. (v7 renamed `system` to
+    // `instructions` and now rejects system messages inside `messages`
+    // outright — sending one is a prompt-injection surface, since anything
+    // that reaches the messages array came in over the wire.)
+    instructions: {
+      role: "system",
+      // Per request, and on the athlete's clock: a module-level UTC date got
+      // a meal filed to the wrong day twice over.
+      content: chatSystem(await athleteToday()),
+      providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+    },
     messages: await convertToModelMessages(messages),
     tools: chatTools,
     stopWhen: stepCountIs(6),
+    onFinish: ({ usage, steps }) => {
+      void recordCall({
+        role: "chat",
+        model: MODELS.chat,
+        inputTokens: usage.inputTokens ?? 0,
+        outputTokens: usage.outputTokens ?? 0,
+        cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens ?? 0,
+        cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens ?? 0,
+        steps: steps.length,
+        ms: Date.now() - startedAt,
+      });
+    },
   });
 
   // Surfacing the error text matters more than hiding it: a failed query the

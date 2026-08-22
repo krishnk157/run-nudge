@@ -1,6 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import type { Finding, InsightReport } from "@/lib/analysis/types";
+import { MODELS } from "./models";
+import { recordCall } from "./usage";
 
 /**
  * The LLM significance layer — the one place a model sits in the proactive
@@ -14,7 +16,11 @@ import type { Finding, InsightReport } from "@/lib/analysis/types";
  * recovery data.
  */
 
-export const JUDGE_MODEL = "claude-opus-5";
+/**
+ * Kept as a named export because the chat layer imported it for its own model
+ * choice; both now come from the role table in `models.ts`.
+ */
+export const JUDGE_MODEL = MODELS.judge;
 
 export interface Judgment {
   notify: boolean;
@@ -125,16 +131,20 @@ export async function judgeInsights(
   report: InsightReport,
   trigger: string,
 ): Promise<Judgment> {
+  const startedAt = Date.now();
   const response = await client().messages.create({
     model: JUDGE_MODEL,
     max_tokens: 8000, // thinking (on by default) + a small JSON object
-    system: [
-      {
-        type: "text",
-        text: JUDGE_SYSTEM,
-        cache_control: { type: "ephemeral" },
-      },
-    ],
+    /*
+     * No cache breakpoint here, and that is a correction rather than an
+     * omission. One was added on Day 4 by reflex. Measured afterwards: this
+     * prompt is 896 tokens, activities arrive hours or days apart, and an
+     * ephemeral cache lives five minutes — so it could never be read back,
+     * while every write billed at 1.25x. On the current model it would not
+     * have cached at all, since the minimum is 4,096 tokens and nothing warns
+     * you when a prompt falls under it.
+     */
+    system: JUDGE_SYSTEM,
     messages: [{ role: "user", content: buildJudgeInput(report, trigger) }],
     output_config: {
       format: {
@@ -149,6 +159,7 @@ export async function judgeInsights(
     inputTokens: response.usage.input_tokens,
     outputTokens: response.usage.output_tokens,
   };
+  void recordCall({ role: "judge", ...usage, ms: Date.now() - startedAt });
 
   // Safety classifiers can decline with a 200 + stop_reason "refusal".
   // For a notification system the safe degradation is silence, logged as such.
