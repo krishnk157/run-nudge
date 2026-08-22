@@ -201,8 +201,11 @@ export function ChatPanel() {
 
   return (
     <>
+      {/* No ⌘K badge: this is used mostly on a phone, where a keyboard hint is
+          advice you cannot take. The shortcut still works on a desktop — it is
+          just not advertised to people who have no keyboard. */}
       <button className="btn" onClick={() => setOpen(true)}>
-        Ask <kbd>⌘K</kbd>
+        Ask
       </button>
 
       {mounted &&

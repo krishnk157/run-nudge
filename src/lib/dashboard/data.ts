@@ -9,6 +9,7 @@ import {
 } from "@/lib/nutrition/body";
 import { recentMeals, type SavedMeal } from "@/lib/nutrition/meals";
 import { proteinSummary, type ProteinSummary } from "@/lib/nutrition/summary";
+import { athleteToday } from "@/lib/time";
 import { sql } from "@/db/client";
 import { getAnchors } from "@/lib/analysis/athlete";
 import { computeInsights } from "@/lib/analysis/engine";
@@ -33,6 +34,26 @@ export interface WeeklyPoint {
   hours: number;
 }
 
+/** One run, for the pace series. */
+export interface PacePoint {
+  date: string;
+  /** Seconds per kilometre — lower is faster, so the axis is inverted. */
+  secPerKm: number;
+  km: number;
+}
+
+/** One day of training, for the calendar. */
+export interface DayLoad {
+  date: string;
+  load: number;
+  sessions: number;
+}
+
+export interface SeriesPoint {
+  date: string;
+  value: number;
+}
+
 export interface EfficiencyPoint {
   date: string;
   index: number;
@@ -55,6 +76,8 @@ export interface FeedEntry {
 }
 
 export interface DashboardData {
+  /** The athlete's calendar date, so charts never read the browser's clock. */
+  today: string;
   freshness: { lastSyncedAt: string | null; daysSinceSync: number | null };
   state: {
     weekLoad: number;
@@ -71,6 +94,10 @@ export interface DashboardData {
   findings: Finding[];
   weekly: WeeklyPoint[];
   efficiency: EfficiencyPoint[];
+  pace: PacePoint[];
+  vo2max: SeriesPoint[];
+  /** Per-day training load for the last 12 weeks — the calendar's source. */
+  calendar: DayLoad[];
   feed: FeedEntry[];
   totals: { activities: number; notifications: number; sent: number };
   /**
@@ -116,6 +143,7 @@ function chipsFor(findings: unknown): FeedEntry["chips"] {
 }
 
 export async function getDashboardData(): Promise<DashboardData> {
+  const today = await athleteToday();
   const [protein, weight, phases, phaseTrend, meals, lastWeight] =
     await Promise.all([
       proteinSummary(7),
@@ -198,6 +226,17 @@ export async function getDashboardData(): Promise<DashboardData> {
     loadByWeek.set(key, (loadByWeek.get(key) ?? 0) + l.load);
   }
 
+  /*
+   * The calendar reads the engine's per-activity loads rather than a second
+   * SQL sum, for the same reason the weekly bars do: one definition of load,
+   * or the dashboard eventually contradicts the notifications.
+   */
+  const calByDay = new Map<string, { load: number; sessions: number }>();
+  for (const l of loads) {
+    const cur = calByDay.get(l.date) ?? { load: 0, sessions: 0 };
+    calByDay.set(l.date, { load: cur.load + l.load, sessions: cur.sessions + 1 });
+  }
+
   const weekly = await sql<
     { week: string; gym: number; run: number; hours: number }[]
   >`
@@ -208,6 +247,15 @@ export async function getDashboardData(): Promise<DashboardData> {
     from activities
     where started_at_local >= current_date - interval '16 weeks'
     group by 1 order by 1`;
+
+  const pace = await sql<{ d: string; sec: number; km: number }[]>`
+    select to_char(started_at_local,'YYYY-MM-DD') as d,
+           round((moving_time_s / (distance_m/1000.0))::numeric, 0)::float as sec,
+           round((distance_m/1000.0)::numeric, 2)::float as km
+    from activities
+    where sport_type in ('Run','TrailRun','VirtualRun')
+      and distance_m >= 1000 and moving_time_s > 0
+    order by started_at_local`;
 
   const eff = await sql<
     { d: string; km: number; hr: number; idx: number }[]
@@ -283,6 +331,11 @@ export async function getDashboardData(): Promise<DashboardData> {
       runSessions: w.run,
       hours: w.hours,
     })),
+    pace: pace.map((p) => ({ date: p.d, secPerKm: p.sec, km: p.km })),
+    vo2max: vo2.map((v) => ({ date: v.d, value: v.v })),
+    calendar: [...calByDay.entries()]
+      .map(([date, v]) => ({ date, load: Math.round(v.load), sessions: v.sessions }))
+      .sort((a, b) => a.date.localeCompare(b.date)),
     efficiency: eff.map((e) => ({
       date: e.d,
       index: e.idx,
@@ -302,6 +355,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       activityDate: r.activity_date,
       chips: chipsFor(r.findings),
     })),
+    today,
     totals: totals ?? { activities: 0, notifications: 0, sent: 0 },
     nutrition: {
       protein,

@@ -1,4 +1,10 @@
-import type { EfficiencyPoint, WeeklyPoint } from "@/lib/dashboard/data";
+import type {
+  DayLoad,
+  EfficiencyPoint,
+  PacePoint,
+  SeriesPoint,
+  WeeklyPoint,
+} from "@/lib/dashboard/data";
 import type { WeightPoint } from "@/lib/nutrition/body";
 
 /**
@@ -49,12 +55,13 @@ function Grid({ id, tint }: { id: string; tint: string }) {
   );
 }
 
-export function LoadBars({ weekly }: { weekly: WeeklyPoint[] }) {
-  if (weekly.length === 0) return null;
-
-  // Fill missing weeks: a week with no training must appear as a zero bar,
-  // not vanish and let the neighbouring weeks sit next to each other as if
-  // they were consecutive.
+/**
+ * Fill missing weeks: a week with no training must appear as a zero, not
+ * vanish and let the neighbouring weeks sit next to each other as if they
+ * were consecutive. Shared by both bar charts so they can never disagree
+ * about which weeks exist.
+ */
+function fillWeeks(weekly: WeeklyPoint[]): WeeklyPoint[] {
   const filled: WeeklyPoint[] = [];
   const first = new Date(`${weekly[0].weekStart}T00:00:00Z`).getTime();
   const last = new Date(`${weekly.at(-1)!.weekStart}T00:00:00Z`).getTime();
@@ -71,6 +78,13 @@ export function LoadBars({ weekly }: { weekly: WeeklyPoint[] }) {
       },
     );
   }
+  return filled;
+}
+
+export function LoadBars({ weekly }: { weekly: WeeklyPoint[] }) {
+  if (weekly.length === 0) return null;
+
+  const filled = fillWeeks(weekly);
 
   const max = Math.max(...filled.map((w) => w.load), 1);
   const bw = 300 / filled.length;
@@ -313,6 +327,254 @@ export function WeightChart({ points }: { points: WeightPoint[] }) {
           <title>{`${p.date}: ${p.weightKg} kg${p.phase ? ` (${p.phase})` : ""}`}</title>
         </circle>
       ))}
+    </svg>
+  );
+}
+
+
+/**
+ * Modality mix per week — gym against runs.
+ *
+ * Stacked rather than side-by-side because the question this answers is "what
+ * did the week look like", and the total height is part of the answer. Side-by-
+ * side would make two thin bars per week that are hard to compare on a phone.
+ */
+export function SportMix({ weekly }: { weekly: WeeklyPoint[] }) {
+  if (weekly.length === 0) return null;
+
+  const filled = fillWeeks(weekly);
+  const max = Math.max(...filled.map((w) => w.gymSessions + w.runSessions), 1);
+  const bw = 300 / filled.length;
+
+  return (
+    <svg viewBox="0 0 300 74" role="img" aria-label="Sessions per week by sport">
+      <Grid id="mix" tint="var(--brand)" />
+      <line x1="0" y1="73" x2="300" y2="73" stroke="var(--rule-strong)" strokeWidth="1" />
+      {filled.map((w, i) => {
+        const x = i * bw + 1.5;
+        const width = Math.max(1, bw - 3);
+        const total = w.gymSessions + w.runSessions;
+        if (total === 0) {
+          return (
+            <rect key={w.weekStart} x={x} y={69} width={width} height={4}
+              fill="var(--dormant)" opacity={0.3}>
+              <title>{`${w.weekStart}: nothing recorded`}</title>
+            </rect>
+          );
+        }
+        const unit = 65 / max;
+        const runH = w.runSessions * unit;
+        const gymH = w.gymSessions * unit;
+        return (
+          <g key={w.weekStart}>
+            <rect x={x} y={69 - gymH} width={width} height={gymH} fill="var(--brand)" opacity={0.75} />
+            <rect x={x} y={69 - gymH - runH} width={width} height={runH} fill="var(--ok)" opacity={0.8} />
+            <title>{`${w.weekStart}: ${w.gymSessions} gym, ${w.runSessions} run`}</title>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/**
+ * Run pace over time. Scatter, never a line.
+ *
+ * Two runs six weeks apart joined by a line asserts a trajectory through a
+ * period with no runs in it. The y-axis is inverted so that up means faster,
+ * which is what the athlete means by "improving" — a chart where progress
+ * points down is read wrong at a glance every single time.
+ */
+export function PaceChart({ points }: { points: PacePoint[] }) {
+  if (points.length === 0) return null;
+
+  const t0 = new Date(points[0].date).getTime();
+  const span = Math.max(1, new Date(points.at(-1)!.date).getTime() - t0);
+  const vals = points.map((p) => p.secPerKm);
+  const lo = Math.min(...vals) - 15;
+  const hi = Math.max(...vals) + 15;
+
+  const xs = (d: string) => 8 + ((new Date(d).getTime() - t0) / span) * 284;
+  // Inverted: a smaller sec/km is a faster run, and belongs higher up.
+  const ys = (v: number) => 10 + ((v - lo) / Math.max(1e-9, hi - lo)) * 56;
+  const mmss = (s: number) =>
+    `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+
+  const best = points.reduce((a, b) => (b.secPerKm < a.secPerKm ? b : a));
+
+  return (
+    <svg viewBox="0 0 300 74" role="img" aria-label="Run pace over time">
+      <Grid id="pace" tint="var(--brand)" />
+      <line x1="0" y1="73" x2="300" y2="73" stroke="var(--rule-strong)" strokeWidth="1" />
+      {points.map((p) => {
+        const isBest = p === best;
+        return (
+          <circle
+            key={`${p.date}-${p.km}`}
+            cx={xs(p.date)}
+            cy={ys(p.secPerKm)}
+            // Distance carries as radius: a fast 2 km and a fast 10 km are not
+            // the same achievement, and hiding that flatters the short ones.
+            r={Math.min(5, 1.8 + p.km * 0.32)}
+            fill={isBest ? "var(--brand)" : "var(--surface)"}
+            stroke={isBest ? "var(--brand)" : "var(--ink-3)"}
+            strokeWidth="1.3"
+          >
+            <title>{`${p.date}: ${p.km} km at ${mmss(p.secPerKm)}/km`}</title>
+          </circle>
+        );
+      })}
+    </svg>
+  );
+}
+
+/**
+ * A sparse measure over time — VO2max, and anything else the watch reports on
+ * days it was worn.
+ *
+ * Points only, plus a marker for how long ago the series stopped. Joining
+ * eleven days in May to nothing since would draw a confident flat line across
+ * three months of no measurement.
+ */
+export function SparseSeries({
+  points,
+  label,
+  today,
+  decimals = 1,
+}: {
+  points: SeriesPoint[];
+  label: string;
+  /** The athlete's date, from the server. Not `Date.now()`: rendering must be
+   *  pure, and their clock is the one that matters anyway. */
+  today: string;
+  decimals?: number;
+}) {
+  if (points.length === 0) return null;
+
+  const t0 = new Date(points[0].date).getTime();
+  // The axis runs to *today*, not to the last reading, so a series that
+  // stopped months ago visibly stops months ago.
+  const now = new Date(`${today}T00:00:00Z`).getTime();
+  const span = Math.max(1, now - t0);
+  const vals = points.map((p) => p.value);
+  const lo = Math.min(...vals) - 0.8;
+  const hi = Math.max(...vals) + 0.8;
+
+  const xs = (t: number) => 8 + ((t - t0) / span) * 284;
+  const ys = (v: number) => 66 - ((v - lo) / Math.max(1e-9, hi - lo)) * 54;
+  const lastT = new Date(points.at(-1)!.date).getTime();
+  const staleDays = Math.round((now - lastT) / DAY);
+
+  return (
+    <svg viewBox="0 0 300 74" role="img" aria-label={label}>
+      <Grid id="sparse" tint="var(--brand)" />
+      <line x1="0" y1="73" x2="300" y2="73" stroke="var(--rule-strong)" strokeWidth="1" />
+
+      {staleDays > 7 && (
+        <>
+          <line
+            x1={xs(lastT)} y1={8} x2={xs(lastT)} y2={70}
+            stroke="var(--dormant)" strokeWidth="1" strokeDasharray="2 3"
+          />
+          <rect
+            x={xs(lastT)} y={8} width={300 - xs(lastT)} height={62}
+            fill="var(--dormant)" opacity={0.07}
+          />
+          <text
+            x={Math.min(296, xs(lastT) + 5)} y={17}
+            fill="var(--dormant)" fontSize="7"
+            fontFamily="var(--font-data)"
+          >
+            {`${staleDays}d unmeasured`}
+          </text>
+        </>
+      )}
+
+      {points.map((p) => (
+        <circle
+          key={p.date}
+          cx={xs(new Date(p.date).getTime())}
+          cy={ys(p.value)}
+          r="2.6"
+          fill="var(--surface)"
+          stroke="var(--brand)"
+          strokeWidth="1.4"
+        >
+          <title>{`${p.date}: ${p.value.toFixed(decimals)}`}</title>
+        </circle>
+      ))}
+    </svg>
+  );
+}
+
+/**
+ * Twelve weeks of training, one cell per day.
+ *
+ * The densest honest view of consistency there is, and the one that reads best
+ * on a phone. An untrained day is an empty outlined cell rather than a missing
+ * one, so a fortnight off is a visible block of nothing instead of a gap the
+ * eye closes up.
+ */
+export function TrainingCalendar({
+  days,
+  today,
+}: {
+  days: DayLoad[];
+  /** The athlete's date, from the server — see SparseSeries. */
+  today: string;
+}) {
+  const WEEKS = 12;
+  const byDay = new Map(days.map((d) => [d.date, d]));
+  const max = Math.max(...days.map((d) => d.load), 1);
+
+  // End on the Sunday of the current week so columns are whole weeks.
+  const end = new Date(`${today}T00:00:00Z`);
+  end.setUTCDate(end.getUTCDate() + ((7 - ((end.getUTCDay() + 6) % 7)) % 7));
+
+  const cells: { date: string; d: DayLoad | undefined; col: number; row: number }[] = [];
+  for (let i = WEEKS * 7 - 1; i >= 0; i--) {
+    const t = new Date(end);
+    t.setUTCDate(end.getUTCDate() - i);
+    const key = t.toISOString().slice(0, 10);
+    const idx = WEEKS * 7 - 1 - i;
+    cells.push({
+      date: key,
+      d: byDay.get(key),
+      col: Math.floor(idx / 7),
+      row: idx % 7,
+    });
+  }
+
+  const size = 300 / WEEKS;
+  const cell = size - 2.2;
+
+  return (
+    <svg viewBox={`0 0 300 ${7 * size}`} role="img" aria-label="Training calendar, last 12 weeks">
+      {cells.map((c) => {
+        const load = c.d?.load ?? 0;
+        const isFuture = c.date > today;
+        return (
+          <rect
+            key={c.date}
+            x={c.col * size + 1}
+            y={c.row * size + 1}
+            width={cell}
+            height={cell}
+            fill={load > 0 ? "var(--brand)" : "transparent"}
+            fillOpacity={load > 0 ? 0.22 + (load / max) * 0.78 : 0}
+            stroke={isFuture ? "transparent" : "var(--rule)"}
+            strokeWidth="0.6"
+          >
+            <title>
+              {isFuture
+                ? c.date
+                : load > 0
+                  ? `${c.date}: ${c.d!.sessions} session${c.d!.sessions === 1 ? "" : "s"}, load ${load}`
+                  : `${c.date}: nothing recorded`}
+            </title>
+          </rect>
+        );
+      })}
     </svg>
   );
 }

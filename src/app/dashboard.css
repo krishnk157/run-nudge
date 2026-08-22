@@ -689,3 +689,91 @@ body {
   .thinking-label { color: var(--ink-2); background: none; -webkit-text-fill-color: currentColor; }
   .suggestion:hover { transform: none; }
 }
+
+/* legend keys used in chart captions */
+.key {
+  display: inline-flex; align-items: center; gap: 4px; margin-right: 9px;
+  color: var(--ink-2);
+}
+.key::before {
+  content: ""; width: 8px; height: 8px; background: var(--dormant);
+}
+.key-brand::before { background: var(--brand); }
+.key-ok::before { background: var(--ok); }
+
+/* the calendar wants the full width of the grid */
+.chart-wide { grid-column: 1 / -1; }
+.chart-wide svg { height: auto; }
+
+/* ------------------------------------------------------------------
+ * Mobile.
+ *
+ * This is where the dashboard is mostly read, so the phone layout is not a
+ * fallback — it is the primary one, and the desktop grid is what widens out
+ * of it. Three structural changes carry most of the difference: readouts drop
+ * to two columns and then one, charts stop being side by side (a 300-unit
+ * viewBox in a half-width column is unreadable), and the feed's date gutter
+ * moves above its entry rather than eating a third of the line length.
+ * ------------------------------------------------------------------ */
+@media (max-width: 760px) {
+  body { font-size: 14.5px; }
+  .wrap { padding: 0 14px 72px; }
+  .top-inner { padding: 10px 14px; gap: 10px; }
+  .brand-sub { display: none; }
+
+  .sec { margin-top: 26px; }
+  .sec-head { flex-wrap: wrap; gap: 6px 12px; }
+  .sec-head .meta { margin-left: 0; flex-basis: 100%; }
+
+  .readouts { grid-template-columns: repeat(2, 1fr); }
+  .ro { padding: 13px 14px 15px; }
+  /* Borders follow the two-column grid, or they draw lines to nowhere. */
+  .ro:nth-child(2n) { border-right: none; }
+  .ro:nth-child(n + 3) { border-top: 1px solid var(--rule); }
+  .ro-val { font-size: 27px; }
+
+  .charts { grid-template-columns: 1fr; }
+  .chart { border-right: none; padding: 14px 14px 16px; }
+  .chart:last-child { border-bottom: none; }
+  /* Hover is not a thing here, so the affordance has to be permanent. */
+  .chart::after { opacity: .75; font-size: 9px; top: 12px; right: 13px; }
+
+  .entry { grid-template-columns: 1fr; }
+  .entry-when {
+    border-right: none; border-bottom: 1px solid var(--rule);
+    padding: 12px 14px 10px 16px;
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  .entry-when b { display: inline; }
+  .entry-body { padding: 13px 14px 15px 16px; }
+  .entry-msg { font-size: 15px; }
+
+  .rule-row { grid-template-columns: 8px 1fr; padding: 9px 14px; }
+  .rule-why { grid-column: 2; text-align: left; }
+  .cov-bar { padding: 11px 14px; }
+
+  .body-form { padding: 12px; }
+  .body-row .ask-input { flex: 1 1 110px; min-width: 0; }
+  .body-row .lbl { min-width: 0; }
+
+  /* Full-bleed sheet: 40px of dashboard peeking through is not useful, and
+     the composer needs every pixel of width it can get. */
+  .sheet { width: 100vw; }
+  .meal-grams .ask-input { width: 64px; }
+}
+
+@media (max-width: 420px) {
+  .readouts { grid-template-columns: 1fr; }
+  .ro { border-right: none; }
+  .ro:nth-child(n + 2) { border-top: 1px solid var(--rule); }
+  .ro-val { font-size: 25px; }
+}
+
+/* Touch targets. A 6px-tall button is fine with a mouse and a coin toss with
+   a thumb. */
+@media (pointer: coarse) {
+  .btn { padding: 9px 14px; }
+  .suggestion { padding: 8px 11px; }
+  .attachment-x { padding: 4px 8px; }
+  .cov-bar { padding: 14px 16px; }
+}
