@@ -25,6 +25,16 @@ import "dotenv/config";
 
 const TARGET = process.argv[2]?.replace(/\/$/, "") ?? "http://localhost:3000";
 
+/**
+ * Production sits behind the auth gate, so running this against a deployment
+ * needs the same cookie a browser would carry. Read from the environment
+ * rather than an argument: a secret on a command line ends up in shell
+ * history.
+ */
+const COOKIE = process.env.ADMIN_TOKEN
+  ? `rn_session=${process.env.ADMIN_TOKEN}`
+  : "";
+
 interface Turn {
   text: string;
   toolCalls: { name: string; input: Record<string, unknown> }[];
@@ -34,7 +44,10 @@ interface Turn {
 async function ask(question: string): Promise<Turn> {
   const res = await fetch(`${TARGET}/api/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(COOKIE ? { cookie: COOKIE } : {}),
+    },
     body: JSON.stringify({
       messages: [
         { id: "1", role: "user", parts: [{ type: "text", text: question }] },

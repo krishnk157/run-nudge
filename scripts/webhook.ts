@@ -45,7 +45,23 @@ async function view() {
   return subs[0];
 }
 
-async function create(callbackUrl: string) {
+/**
+ * Strava registers `callback_url` exactly as given and immediately GETs it.
+ * Passing a bare origin therefore points the subscription at `/`, which used
+ * to happen to return 200 and now returns 401 behind the auth gate — the
+ * failure surfaces as an opaque "GET to callback URL does not return 200"
+ * from Strava with no hint that the path was the problem. Normalising here
+ * costs three lines and removes the whole class of mistake.
+ */
+function webhookUrl(input: string): string {
+  const url = new URL(input);
+  if (!url.pathname.replace(/\/$/, "")) url.pathname = "/api/strava/webhook";
+  return url.toString().replace(/\/$/, "");
+}
+
+async function create(input: string) {
+  const callbackUrl = webhookUrl(input);
+  console.log(`registering callback: ${callbackUrl}`);
   const { client_id, client_secret, verify_token } = creds();
   const res = await fetch(API, {
     method: "POST",
