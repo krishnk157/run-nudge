@@ -498,3 +498,15 @@ body {
   font-size: 15px; line-height: 1; padding: 0 2px;
 }
 .attachment-x:hover { color: var(--crit); }
+
+/* a photo the athlete sent, inside their own message */
+.msg-photo {
+  display: block;
+  width: 100%;
+  max-width: 260px;
+  aspect-ratio: 4 / 3;
+  background-size: cover;
+  background-position: center;
+  background-color: var(--ground);
+  border: 1px solid var(--rule-strong);
+}

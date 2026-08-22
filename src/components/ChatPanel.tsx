@@ -249,6 +249,25 @@ export function ChatPanel() {
                             return <span key={i}>{part.text}</span>;
                           }
 
+                          // The photo the athlete sent, in their own message.
+                          // Without this the picture vanished the moment it was
+                          // sent: the attachment strip cleared on submit and
+                          // nothing rendered the file part, so the model would
+                          // answer about an image that was no longer on screen.
+                          if (part.type === "file") {
+                            const f = part as FileUIPart;
+                            if (!f.mediaType?.startsWith("image/")) return null;
+                            return (
+                              <span
+                                className="msg-photo"
+                                key={i}
+                                role="img"
+                                aria-label={f.filename ?? "photo of a meal"}
+                                style={{ backgroundImage: `url(${f.url})` }}
+                              />
+                            );
+                          }
+
                           // A chart tool result becomes an actual chart. Everything
                           // it plots was fetched by an earlier query_metrics call —
                           // render_chart has no data access of its own.
