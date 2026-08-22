@@ -165,4 +165,27 @@ status ('drafted'|'sent'|'send_failed'), channel, external_id, sent_at, error
 ## webhook_events — raw Strava deliveries and their processing outcome
 id, received_at, object_type, object_id, aspect_type, status, error, raw, processed_at
 
+## Nutrition and body composition (Day 7)
+
+profile: id (always 1), height_cm
+body_log: date (PK), weight_kg, note — one weigh-in per calendar day
+goal_phases: id, phase ('bulk'|'cut'|'maintain'), started_on, note
+  A phase runs until the next one starts; there is no end date column. Use
+  lead(started_on) over (order by started_on) to close the span.
+  NEVER average or fit a weight trend across a phase boundary — a slope through
+  a bulk and the cut after it describes neither.
+foods: id, key (normalized name, unique), name, kcal_per_100g,
+  protein_g_per_100g, carbs_g_per_100g, fat_g_per_100g,
+  source ('model' = composition estimated and unchecked, 'user' = confirmed)
+meals: id, eaten_on (date), logged_via ('photo'|'text'), raw_input, note
+meal_items: id, meal_id, food_id, grams, count (display text only), edited
+
+IMPORTANT: a meal's calories and macros are never stored — they are computed:
+  sum(f.kcal_per_100g * mi.grams / 100.0)
+joining meals -> meal_items -> foods. Always compute them this way.
+
+Days with no meals have no rows. That means "not logged", which is not the same
+as "not eaten", and a mean over logged days only is a self-selected sample —
+say so rather than presenting it as a daily average.
+
 ## strava_tokens, sync_state — plumbing; rarely useful for questions.`;

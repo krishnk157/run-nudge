@@ -2,7 +2,8 @@ import { anthropic } from "@ai-sdk/anthropic";
 import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from "ai";
 
 import { chatTools } from "@/lib/chat/aiTools";
-import { CHAT_SYSTEM } from "@/lib/chat/prompt";
+import { chatSystem } from "@/lib/chat/prompt";
+import { athleteToday } from "@/lib/time";
 import { JUDGE_MODEL } from "@/lib/llm/judge";
 
 export const runtime = "nodejs";
@@ -41,7 +42,9 @@ export async function POST(req: Request) {
 
   const result = streamText({
     model: anthropic(JUDGE_MODEL),
-    system: CHAT_SYSTEM,
+    // Per request, and on the athlete's clock: a module-level UTC date got
+    // a meal filed to the wrong day twice over.
+    system: chatSystem(await athleteToday()),
     messages: await convertToModelMessages(messages),
     tools: chatTools,
     stopWhen: stepCountIs(6),

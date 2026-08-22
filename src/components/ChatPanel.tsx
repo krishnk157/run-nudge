@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type ToolUIPart } from "ai";
+import { DefaultChatTransport, type FileUIPart, type ToolUIPart } from "ai";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 
@@ -14,10 +14,15 @@ import {
 import { Message, MessageContent } from "@/components/ai-elements/message";
 import {
   PromptInput,
+  PromptInputActionAddAttachments,
+  PromptInputActionMenu,
+  PromptInputActionMenuContent,
+  PromptInputActionMenuTrigger,
   PromptInputBody,
   PromptInputFooter,
   PromptInputSubmit,
   PromptInputTextarea,
+  PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
 import {
   Tool,
@@ -27,6 +32,7 @@ import {
   ToolOutput,
 } from "@/components/ai-elements/tool";
 import { ChatChart } from "./Charts";
+import { MealDraft, type MealDraftSpec } from "./MealDraft";
 
 /**
  * Chat, on the AI SDK's `useChat` with AI Elements components.
@@ -43,7 +49,7 @@ const SUGGESTIONS = [
   "How much did I train this week?",
   "Show my weekly load for the last 3 months",
   "What was my fastest 5k, and when?",
-  "How has my heart rate changed on runs?",
+  "I had 3 eggs and toast for breakfast",
 ];
 
 interface ChartOutput {
@@ -56,6 +62,7 @@ interface ChartOutput {
 export function ChatPanel() {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
+  const [attachError, setAttachError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const { messages, sendMessage, status } = useChat({
@@ -101,11 +108,13 @@ export function ChatPanel() {
     if (open) setTimeout(() => inputRef.current?.focus(), 250);
   }, [open]);
 
-  const ask = (q: string) => {
+  const ask = (q: string, files?: FileUIPart[]) => {
     const trimmed = q.trim();
-    if (!trimmed || busy) return;
+    // A photo on its own is a complete message — "here, log this" — so an
+    // empty box with an attachment must still send.
+    if ((!trimmed && !files?.length) || busy) return;
     setText("");
-    void sendMessage({ text: trimmed });
+    void sendMessage({ text: trimmed, files });
   };
 
   return (
@@ -190,6 +199,18 @@ export function ChatPanel() {
                             return null;
                           }
 
+                          // The meal card is interactive and unsaved: the
+                          // model proposed it, the athlete corrects the
+                          // portions, and only pressing Save writes anything.
+                          if (part.type === "tool-propose_meal") {
+                            const p = part as ToolUIPart;
+                            const out = p.output as MealDraftSpec | undefined;
+                            if (p.state === "output-available" && out?.items?.length) {
+                              return <MealDraft key={i} spec={out} />;
+                            }
+                            return null;
+                          }
+
                           if (part.type === "tool-query_metrics") {
                             const p = part as ToolUIPart;
                             const input = p.input as
@@ -225,9 +246,18 @@ export function ChatPanel() {
 
               <div className="sheet-foot">
                 <PromptInput
+                  accept="image/*"
+                  multiple
+                  maxFiles={4}
+                  // Anthropic rejects images past ~5 MB and a modern phone
+                  // camera clears that on a good day. Failing here with a
+                  // readable message beats a 400 from the API mid-stream.
+                  maxFileSize={5 * 1024 * 1024}
+                  onError={(err) => setAttachError(err.message)}
                   onSubmit={(msg, e) => {
                     e.preventDefault();
-                    ask(msg.text ?? "");
+                    setAttachError(null);
+                    ask(msg.text ?? "", msg.files);
                   }}
                 >
                   <PromptInputBody>
@@ -240,13 +270,19 @@ export function ChatPanel() {
                     />
                   </PromptInputBody>
                   <PromptInputFooter>
-                    <span className="hint">
-                      Answers come from SQL over your data — never estimated.
+                    <PromptInputTools>
+                      <PromptInputActionMenu>
+                        <PromptInputActionMenuTrigger />
+                        <PromptInputActionMenuContent>
+                          <PromptInputActionAddAttachments label="Photograph a meal" />
+                        </PromptInputActionMenuContent>
+                      </PromptInputActionMenu>
+                    </PromptInputTools>
+                    <span className={`hint ${attachError ? "hint-err" : ""}`}>
+                      {attachError ??
+                        "Answers come from SQL over your data — never estimated."}
                     </span>
-                    <PromptInputSubmit
-                      status={status}
-                      disabled={!text.trim() && !busy}
-                    />
+                    <PromptInputSubmit status={status} disabled={busy} />
                   </PromptInputFooter>
                 </PromptInput>
               </div>

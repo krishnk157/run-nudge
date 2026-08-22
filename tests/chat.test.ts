@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { chatTools } from "@/lib/chat/aiTools";
-import { CHAT_SYSTEM } from "@/lib/chat/prompt";
+import { chatSystem } from "@/lib/chat/prompt";
 import { validateQuery } from "@/lib/chat/queryMetrics";
 
 /**
@@ -100,8 +100,12 @@ describe("render_chart", () => {
 });
 
 describe("chat contract", () => {
-  it("exposes exactly the two planned tools", () => {
+  it("exposes exactly the planned tools", () => {
+    // Day 7 added propose_meal. The count is asserted rather than a subset
+    // check because the property that matters is what is *absent*: nothing
+    // here can write to the database.
     expect(Object.keys(chatTools).sort()).toEqual([
+      "propose_meal",
       "query_metrics",
       "render_chart",
     ]);
@@ -123,20 +127,28 @@ describe("chat contract", () => {
   });
 
   it("tells the model it may not invent numbers", () => {
-    expect(CHAT_SYSTEM).toMatch(/must come from a query_metrics result/i);
-    expect(CHAT_SYSTEM).toMatch(/do not estimate/i);
+    expect(chatSystem("2026-08-23")).toMatch(/must come from a query_metrics result/i);
+    expect(chatSystem("2026-08-23")).toMatch(/do not estimate/i);
   });
 
   it("carries the absence-vs-nonexistence rule", () => {
     // The same honesty constraint as the judge and the digest — an empty
     // result set is not evidence that nothing happened.
-    expect(CHAT_SYSTEM).toMatch(/absence of rows as an absence of training/i);
+    expect(chatSystem("2026-08-23")).toMatch(/absence of rows as an absence of training/i);
+  });
+
+  it("takes the date rather than computing one at import", () => {
+    // Regression: `Today's date is ${new Date()}` in a module-level template
+    // literal is evaluated when the module loads. A dev server left running
+    // overnight told the model the wrong day, and a meal was filed under it.
+    expect(chatSystem("2026-01-02")).toContain("2026-01-02");
+    expect(chatSystem("2026-06-30")).toContain("2026-06-30");
   });
 
   it("warns the model that activity data can be stale", () => {
     // Day 5's incident, carried into the chat layer: a question about the
     // last day or two must check ingested_at before asserting nothing
     // happened. Verified live — the model volunteered the caveat unprompted.
-    expect(CHAT_SYSTEM).toMatch(/ingested_at/);
+    expect(chatSystem("2026-08-23")).toMatch(/ingested_at/);
   });
 });

@@ -2,8 +2,13 @@
 
 import type { ReactNode } from "react";
 
-import { EfficiencyChart as EfficiencySvg, LoadBars as LoadBarsSvg } from "./Charts";
+import {
+  EfficiencyChart as EfficiencySvg,
+  LoadBars as LoadBarsSvg,
+  WeightChart as WeightSvg,
+} from "./Charts";
 import type { EfficiencyPoint, WeeklyPoint } from "@/lib/dashboard/data";
+import type { WeightPoint } from "@/lib/nutrition/body";
 
 /**
  * Client wrappers. The charts themselves are pure SVG and could render on the
@@ -17,6 +22,10 @@ export function LoadBars({ weekly }: { weekly: WeeklyPoint[] }) {
 
 export function EfficiencyChart({ points }: { points: EfficiencyPoint[] }) {
   return <EfficiencySvg points={points} />;
+}
+
+export function WeightChart({ points }: { points: WeightPoint[] }) {
+  return <WeightSvg points={points} />;
 }
 
 /**

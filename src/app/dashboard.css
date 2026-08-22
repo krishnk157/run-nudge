@@ -411,3 +411,64 @@ body {
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: .01ms !important; }
 }
+
+/* ---- Day 7: body, intake, meal cards ---- */
+
+.body-form {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px; margin-bottom: 14px;
+  border: 1px solid var(--rule); background: var(--surface);
+}
+.body-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.body-row .ask-input { width: auto; min-width: 96px; }
+.body-row .lbl { min-width: 58px; }
+.phase-now {
+  font-family: var(--font-data); font-size: 12px; color: var(--ink-2);
+  padding: 3px 8px; border: 1px dashed var(--rule-strong);
+}
+
+.meal-list {
+  list-style: none; margin: 10px 0 0; padding: 0;
+  display: flex; flex-direction: column; gap: 6px;
+  font-family: var(--font-data); font-size: 12px; color: var(--ink-2);
+}
+.meal-list li { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.meal-list-sep { color: var(--ink-3); }
+
+/*
+ * The confirmation card. Styled as a form rather than as a message, because
+ * that is what it is — the one place in the chat where the athlete's input
+ * changes what gets written, and it should not look like prose from the model.
+ */
+.meal {
+  border: 1px solid var(--rule-strong); background: var(--surface);
+  padding: 11px 12px; display: flex; flex-direction: column; gap: 9px;
+}
+.meal.is-saved { border-color: color-mix(in srgb, var(--ok) 45%, var(--rule)); }
+.meal-head { display: flex; align-items: center; gap: 8px; }
+.meal-items { width: 100%; border-collapse: collapse; }
+.meal-items td { padding: 4px 0; vertical-align: middle; }
+.meal-items tr + tr td { border-top: 1px solid var(--rule); }
+.meal-name { font-size: 13.5px; color: var(--ink); }
+.meal-sub {
+  font-family: var(--font-data); font-size: 10.5px; color: var(--ink-3);
+  margin-top: 1px;
+}
+.meal-grams { text-align: right; white-space: nowrap; }
+.meal-grams .ask-input { width: 72px; padding: 4px 6px; text-align: right; }
+.meal-unit {
+  font-family: var(--font-data); font-size: 11px; color: var(--ink-3);
+  margin-left: 4px;
+}
+.meal-totals {
+  font-size: 13px; color: var(--ink); padding-top: 7px;
+  border-top: 1px solid var(--rule-strong);
+}
+.meal-totals b { font-weight: 600; }
+.meal-prov { font-family: var(--font-data); font-size: 10.5px; color: var(--ink-3); }
+.meal-err {
+  font-family: var(--font-data); font-size: 11px; color: var(--crit);
+  border-left: 2px solid var(--crit); padding-left: 8px;
+}
+.meal-actions { display: flex; gap: 8px; }
+.hint-err { color: var(--crit); }

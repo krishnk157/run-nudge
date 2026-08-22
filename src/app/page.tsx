@@ -2,7 +2,8 @@ import "./dashboard.css";
 
 import { ChatPanel } from "@/components/ChatPanel";
 import { Coverage } from "@/components/Coverage";
-import { AskLink, EfficiencyChart, LoadBars } from "@/components/DashboardClient";
+import { BodyForm } from "@/components/BodyForm";
+import { AskLink, EfficiencyChart, LoadBars, WeightChart } from "@/components/DashboardClient";
 import { getDashboardData } from "@/lib/dashboard/data";
 
 export const dynamic = "force-dynamic";
@@ -47,7 +48,10 @@ export default async function Home() {
     );
   }
 
-  const { state, freshness, findings, weekly, efficiency, feed, totals } = data;
+  const { state, freshness, findings, weekly, efficiency, feed, totals, nutrition } =
+    data;
+  const { protein, phaseTrend } = nutrition;
+  const currentPhase = nutrition.phases.at(-1) ?? null;
   const idle = state.daysSinceLast != null && state.daysSinceLast >= 3;
   const stale = freshness.daysSinceSync != null && freshness.daysSinceSync >= 2;
   const latestEff = efficiency.at(-1);
@@ -200,6 +204,164 @@ export default async function Home() {
                 </article>
               );
             })}
+          </div>
+        </section>
+
+        {/*
+          Nutrition is its own section rather than a row in the state strip,
+          because it is the only data here the athlete has to produce by hand.
+          Training data arrives whether or not they think about it; a food log
+          exists only on the days they remembered. Mixing the two would let an
+          unlogged day read like a measured one.
+        */}
+        <section className="sec">
+          <div className="sec-head">
+            <span className="lbl">Body &amp; intake</span>
+            <span className="lbl meta">
+              {protein.loggedDays} of {protein.windowDays} days logged
+            </span>
+          </div>
+
+          <BodyForm
+            latestKg={nutrition.latestWeight?.weightKg ?? null}
+            latestOn={nutrition.latestWeight?.date ?? null}
+            phase={currentPhase}
+          />
+
+          <div className="readouts">
+            <Row
+              label="Protein · 7d"
+              value={
+                protein.eligible ? (
+                  <>
+                    {protein.gPerKg}
+                    <span className="unit"> g/kg</span>
+                  </>
+                ) : (
+                  "—"
+                )
+              }
+              note={
+                protein.eligible
+                  ? `${protein.meanProteinG} g/day over ${protein.loggedDays} logged days`
+                  : protein.reason
+              }
+              noteClass={protein.eligible ? undefined : "dormant"}
+              isVoid={!protein.eligible}
+            />
+
+            <Row
+              label="Intake · logged days"
+              value={
+                protein.meanKcal != null ? (
+                  <>
+                    {protein.meanKcal}
+                    <span className="unit"> kcal</span>
+                  </>
+                ) : (
+                  "—"
+                )
+              }
+              note={
+                protein.meanKcal != null
+                  ? `mean of the days you logged — not a daily average${
+                      protein.estimatedShare
+                        ? `; ${Math.round(protein.estimatedShare * 100)}% estimated`
+                        : ""
+                    }`
+                  : protein.loggedDays === 0
+                    ? "no meals logged in the last 7 days"
+                    : // Not the same sentence as "nothing logged", and the
+                      // difference is the whole point of the panel: one logged
+                      // day is data, it is just not a week.
+                      `${protein.loggedDays} of ${protein.windowDays} days logged — too few to average`
+              }
+              noteClass="dormant"
+              isVoid={protein.meanKcal == null}
+            />
+
+            <Row
+              label={
+                phaseTrend.phase ? `Trend · ${phaseTrend.phase}` : "Trend · phase"
+              }
+              value={
+                phaseTrend.eligible ? (
+                  <>
+                    {phaseTrend.kgPerWeek! > 0 ? "+" : ""}
+                    {phaseTrend.kgPerWeek}
+                    <span className="unit"> kg/wk</span>
+                  </>
+                ) : (
+                  "—"
+                )
+              }
+              note={
+                phaseTrend.eligible
+                  ? `${phaseTrend.readings} weigh-ins over ${phaseTrend.spanDays}d${
+                      phaseTrend.agrees === false
+                        ? ` — opposite to a ${phaseTrend.phase}`
+                        : ""
+                    }`
+                  : phaseTrend.reason
+              }
+              noteClass={
+                phaseTrend.eligible && phaseTrend.agrees === false
+                  ? "warn"
+                  : "dormant"
+              }
+              isVoid={!phaseTrend.eligible}
+            />
+          </div>
+
+          <div className="charts">
+            <AskLink question="How has my weight moved within my current phase?">
+              <div className="chart-head">
+                <span className="lbl">Weight by phase</span>
+                <span className="lbl meta">
+                  {nutrition.weight.length} weigh-ins
+                </span>
+              </div>
+              {nutrition.weight.length > 0 ? (
+                <WeightChart points={nutrition.weight} />
+              ) : (
+                <div className="void-box">
+                  no weigh-ins yet
+                  <span>log one above and the trend starts here</span>
+                </div>
+              )}
+              <div className="chart-note">
+                The line breaks at every phase boundary. A single trend through
+                a bulk and the cut after it would describe neither.
+              </div>
+            </AskLink>
+
+            <AskLink question="What did I eat this week, and how much protein was in it?">
+              <div className="chart-head">
+                <span className="lbl">Recent meals</span>
+                <span className="lbl meta">computed from stored composition</span>
+              </div>
+              {nutrition.recentMeals.length > 0 ? (
+                <ul className="meal-list">
+                  {nutrition.recentMeals.map((m) => (
+                    <li key={m.id}>
+                      <span className="num">{m.eatenOn}</span>
+                      <span className="meal-list-sep">·</span>
+                      <span className="num">{m.kcal} kcal</span>
+                      <span className="meal-list-sep">·</span>
+                      <span className="num">{m.proteinG} g protein</span>
+                      {m.estimatedShare > 0.5 && (
+                        <span className="chip skip">mostly estimated</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="void-box">
+                  nothing logged
+                  <span>press ⌘K and describe or photograph a meal</span>
+                </div>
+              )}
+            </AskLink>
           </div>
         </section>
 

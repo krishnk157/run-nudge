@@ -1,4 +1,5 @@
 import type { EfficiencyPoint, WeeklyPoint } from "@/lib/dashboard/data";
+import type { WeightPoint } from "@/lib/nutrition/body";
 
 /**
  * Hand-rolled SVG rather than a charting library.
@@ -157,6 +158,103 @@ export function EfficiencyChart({ points }: { points: EfficiencyPoint[] }) {
           </circle>
         );
       })}
+    </svg>
+  );
+}
+
+/**
+ * Weight, broken at every phase boundary.
+ *
+ * The line is deliberately not continuous across a change of goal. Drawing a
+ * single sweep through a bulk and the cut that follows it produces exactly the
+ * picture the athlete asked this system not to produce: a smooth trend that
+ * averages two opposite intentions into one meaningless direction. Each phase
+ * gets its own segment, with a rule marking where the goal changed.
+ */
+export function WeightChart({ points }: { points: WeightPoint[] }) {
+  if (points.length === 0) return null;
+
+  const t0 = new Date(points[0].date).getTime();
+  const span = Math.max(1, new Date(points.at(-1)!.date).getTime() - t0);
+  const values = points.map((p) => p.weightKg);
+  const lo = Math.min(...values) - 0.6;
+  const hi = Math.max(...values) + 0.6;
+
+  const xs = (d: string) => 8 + ((new Date(d).getTime() - t0) / span) * 284;
+  const ys = (v: number) => 66 - ((v - lo) / Math.max(1e-9, hi - lo)) * 54;
+
+  // One segment per phase. A null phase (weigh-ins recorded before any goal
+  // was declared) is its own segment too — it is a distinct regime, not a
+  // continuation of whatever came after it.
+  const segments: WeightPoint[][] = [];
+  let current: WeightPoint[] = [];
+  points.forEach((p, i) => {
+    if (i > 0 && p.phase !== points[i - 1].phase) {
+      segments.push(current);
+      current = [];
+    }
+    current.push(p);
+  });
+  segments.push(current);
+
+  const colour = (phase: WeightPoint["phase"]) =>
+    phase === "bulk"
+      ? "var(--ok)"
+      : phase === "cut"
+        ? "var(--warn)"
+        : phase === "maintain"
+          ? "var(--brand)"
+          : "var(--dormant)";
+
+  return (
+    <svg viewBox="0 0 300 74" role="img" aria-label="Body weight by goal phase">
+      <line x1="0" y1="73" x2="300" y2="73" stroke="var(--rule-strong)" strokeWidth="1" />
+
+      {/* Boundaries first, so the data sits on top of them. */}
+      {segments.slice(1).map((seg) => {
+        const at = seg[0];
+        return (
+          <g key={`bound-${at.date}`}>
+            <line
+              x1={xs(at.date)}
+              y1={6}
+              x2={xs(at.date)}
+              y2={70}
+              stroke="var(--rule-strong)"
+              strokeWidth="1"
+              strokeDasharray="2 3"
+            />
+            <title>{`${at.phase ?? "no phase"} began ${at.date}`}</title>
+          </g>
+        );
+      })}
+
+      {segments.map((seg, i) =>
+        seg.length > 1 ? (
+          <polyline
+            key={`wseg-${i}`}
+            points={seg.map((p) => `${xs(p.date)},${ys(p.weightKg)}`).join(" ")}
+            fill="none"
+            stroke={colour(seg[0].phase)}
+            strokeWidth="1.5"
+            opacity={0.75}
+          />
+        ) : null,
+      )}
+
+      {points.map((p, i) => (
+        <circle
+          key={p.date}
+          cx={xs(p.date)}
+          cy={ys(p.weightKg)}
+          r={i === points.length - 1 ? 3.6 : 2.2}
+          fill={i === points.length - 1 ? colour(p.phase) : "var(--surface)"}
+          stroke={colour(p.phase)}
+          strokeWidth="1.4"
+        >
+          <title>{`${p.date}: ${p.weightKg} kg${p.phase ? ` (${p.phase})` : ""}`}</title>
+        </circle>
+      ))}
     </svg>
   );
 }

@@ -1,7 +1,9 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   bigserial,
   boolean,
+  check,
   date,
   doublePrecision,
   index,
@@ -10,6 +12,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -281,7 +284,198 @@ export const syncState = pgTable("sync_state", {
     .defaultNow(),
 });
 
+
+/* ==================================================================
+ * Day 7 — nutrition and body composition
+ * ================================================================== */
+
+/**
+ * Facts that are true once, not per-day. Height is the only one so far.
+ *
+ * A singleton table rather than a constant in code: height belongs to the
+ * athlete, not to the build, and protein-per-kg needs it available to SQL.
+ * The CHECK keeps it a singleton at the database level, so a second row is a
+ * constraint violation rather than a silently ambiguous read.
+ */
+export const profile = pgTable(
+  "profile",
+  {
+    id: integer("id").primaryKey().default(1),
+    heightCm: doublePrecision("height_cm"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  () => [check("profile_singleton", sql`id = 1`)],
+);
+
+/**
+ * Body weight over time. One reading per calendar day — a second weigh-in on
+ * the same day replaces the first rather than being averaged with it, because
+ * morning and evening readings differ by more than a week of real change and
+ * mixing the two manufactures a trend.
+ */
+export const bodyLog = pgTable("body_log", {
+  date: date("date").primaryKey(),
+  weightKg: doublePrecision("weight_kg").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/**
+ * Bulk / cut / maintain, as dated state rather than a setting.
+ *
+ * Append-only, and deliberately without an `ended_on`: a phase runs until the
+ * next one starts. Two columns describing one boundary is two chances to
+ * disagree — a gap or an overlap becomes representable, and then some query
+ * has to decide what an athlete who is simultaneously bulking and cutting
+ * means. One column cannot contradict itself.
+ *
+ * The point of storing this at all is that a weight trend is only meaningful
+ * *within* a phase. Averaging across a bulk and the cut that follows it
+ * produces a number that describes neither.
+ */
+export const goalPhases = pgTable(
+  "goal_phases",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    /** 'bulk' | 'cut' | 'maintain' */
+    phase: text("phase").notNull(),
+    startedOn: date("started_on").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("goal_phases_started_idx").on(t.startedOn),
+    check("goal_phases_phase", sql`phase in ('bulk', 'cut', 'maintain')`),
+  ],
+);
+
+/**
+ * Canonical composition per 100 g. Written once per new food, read forever.
+ *
+ * This table is the reason a meal's calories are reproducible. The model is
+ * allowed to *propose* a composition for a food it has never seen — there is
+ * no other source for "roughly what is in a home-made chicken biryani" — but
+ * that proposal becomes a stored, correctable row the moment it is saved. Log
+ * the same dish next week and the arithmetic reads this row rather than asking
+ * the model again, so the answer is identical by construction.
+ *
+ * `key` is the normalized name and carries the uniqueness constraint, so
+ * "Chicken Biryani" and "chicken biryani " are one food and not two.
+ */
+export const foods = pgTable(
+  "foods",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    /** Lowercased, whitespace-collapsed name. The identity of the food. */
+    key: text("key").notNull(),
+    /** As the athlete would write it — for display only. */
+    name: text("name").notNull(),
+    kcalPer100g: doublePrecision("kcal_per_100g").notNull(),
+    proteinGPer100g: doublePrecision("protein_g_per_100g").notNull(),
+    carbsGPer100g: doublePrecision("carbs_g_per_100g").notNull(),
+    fatGPer100g: doublePrecision("fat_g_per_100g").notNull(),
+    /**
+     * 'model' — composition proposed by the model and accepted as-is.
+     * 'user'  — the athlete typed or corrected the numbers.
+     * Kept so an estimate never quietly acquires the authority of a
+     * measurement: the dashboard can say how much of a total is estimated.
+     */
+    source: text("source").notNull().default("model"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("foods_key_idx").on(t.key),
+    check("foods_source", sql`source in ('model', 'user')`),
+  ],
+);
+
+/**
+ * One logged eating occasion.
+ *
+ * `eaten_on` is a plain date, not a timestamp, and it is what every daily
+ * total groups by. A meal at 00:30 belongs to the night it was eaten, which is
+ * a judgment the athlete makes and the clock cannot.
+ *
+ * No image is stored. A photo is input to the proposal and nothing downstream
+ * reads it back, so keeping it would mean running a blob store to hold data
+ * the system never consults.
+ */
+export const meals = pgTable(
+  "meals",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    eatenOn: date("eaten_on").notNull(),
+    /** 'photo' | 'text' — how the draft was produced, for honesty about provenance. */
+    loggedVia: text("logged_via").notNull().default("text"),
+    /** The athlete's own words, kept so a wrong parse can be diagnosed later. */
+    rawInput: text("raw_input"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("meals_eaten_on_idx").on(t.eatenOn),
+    check("meals_logged_via", sql`logged_via in ('photo', 'text')`),
+  ],
+);
+
+/**
+ * A quantity of one food inside one meal.
+ *
+ * `grams` is the only quantity the arithmetic uses. `count` ("2 eggs") is
+ * display text for the confirmation card — keeping both means the card can
+ * read the way the athlete thinks while the totals stay in one unit.
+ *
+ * `edited` records whether the athlete changed the model's proposed grams
+ * before saving. That is the measurement that decides whether
+ * confirm-before-save is earning its friction.
+ */
+export const mealItems = pgTable(
+  "meal_items",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    /**
+     * Cascade: items have no meaning apart from their meal, so deleting the
+     * meal must take them with it. The alternative is orphan rows that every
+     * future total has to remember to exclude.
+     */
+    mealId: bigint("meal_id", { mode: "number" })
+      .notNull()
+      .references(() => meals.id, { onDelete: "cascade" }),
+    /**
+     * Restrict, not cascade: a food is shared across every meal that ever used
+     * it, so deleting one must fail loudly rather than silently rewrite
+     * history.
+     */
+    foodId: bigint("food_id", { mode: "number" })
+      .notNull()
+      .references(() => foods.id, { onDelete: "restrict" }),
+    grams: doublePrecision("grams").notNull(),
+    /** Free text as proposed: "2 eggs", "1 bowl". Never used in a calculation. */
+    count: text("count"),
+    edited: boolean("edited").notNull().default(false),
+  },
+  (t) => [index("meal_items_meal_idx").on(t.mealId)],
+);
+
 export type Activity = typeof activities.$inferSelect;
 export type NewActivity = typeof activities.$inferInsert;
 export type StravaToken = typeof stravaTokens.$inferSelect;
 export type DailyMetric = typeof dailyMetrics.$inferSelect;
+export type Food = typeof foods.$inferSelect;
+export type Meal = typeof meals.$inferSelect;
+export type MealItem = typeof mealItems.$inferSelect;
+export type BodyLog = typeof bodyLog.$inferSelect;
+export type GoalPhase = typeof goalPhases.$inferSelect;

@@ -1,3 +1,14 @@
+import {
+  currentPhaseTrend,
+  latestWeight,
+  phaseSpans,
+  weightSeries,
+  type PhaseSpan,
+  type PhaseTrend,
+  type WeightPoint,
+} from "@/lib/nutrition/body";
+import { recentMeals, type SavedMeal } from "@/lib/nutrition/meals";
+import { proteinSummary, type ProteinSummary } from "@/lib/nutrition/summary";
 import { sql } from "@/db/client";
 import { getAnchors } from "@/lib/analysis/athlete";
 import { computeInsights } from "@/lib/analysis/engine";
@@ -62,6 +73,20 @@ export interface DashboardData {
   efficiency: EfficiencyPoint[];
   feed: FeedEntry[];
   totals: { activities: number; notifications: number; sent: number };
+  /**
+   * Day 7. Deliberately a separate branch of the payload rather than merged
+   * into `state`: training data arrives by itself from Strava, nutrition data
+   * only exists if the athlete typed it, and the dashboard has to be able to
+   * say which of the two is missing.
+   */
+  nutrition: {
+    protein: ProteinSummary;
+    weight: WeightPoint[];
+    latestWeight: WeightPoint | null;
+    phases: PhaseSpan[];
+    phaseTrend: PhaseTrend;
+    recentMeals: SavedMeal[];
+  };
 }
 
 /** Chips summarising a notification's findings, for the feed. */
@@ -91,6 +116,16 @@ function chipsFor(findings: unknown): FeedEntry["chips"] {
 }
 
 export async function getDashboardData(): Promise<DashboardData> {
+  const [protein, weight, phases, phaseTrend, meals, lastWeight] =
+    await Promise.all([
+      proteinSummary(7),
+      weightSeries(),
+      phaseSpans(),
+      currentPhaseTrend(),
+      recentMeals(6),
+      latestWeight(),
+    ]);
+
   const [fresh] = await sql<
     { last_sync: string | null; days: number | null }[]
   >`
@@ -268,5 +303,13 @@ export async function getDashboardData(): Promise<DashboardData> {
       chips: chipsFor(r.findings),
     })),
     totals: totals ?? { activities: 0, notifications: 0, sent: 0 },
+    nutrition: {
+      protein,
+      weight,
+      latestWeight: lastWeight,
+      phases,
+      phaseTrend,
+      recentMeals: meals,
+    },
   };
 }
