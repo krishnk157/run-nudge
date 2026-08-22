@@ -11,7 +11,11 @@ import {
   ConversationEmptyState,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
-import { Message, MessageContent } from "@/components/ai-elements/message";
+import {
+  Message,
+  MessageContent,
+  MessageResponse,
+} from "@/components/ai-elements/message";
 import {
   PromptInput,
   PromptInputBody,
@@ -270,13 +274,22 @@ export function ChatPanel() {
                               status === "streaming" &&
                               message === messages.at(-1) &&
                               i === message.parts.length - 1;
+
+                            // The athlete's own words are shown verbatim; the
+                            // model's go through the markdown renderer. Piping
+                            // its text straight into a <span> was why a table
+                            // of runs arrived as a wall of pipe characters —
+                            // the renderer was vendored and never called.
+                            if (message.role === "user") {
+                              return <span key={i}>{part.text}</span>;
+                            }
                             return (
-                              <span
-                                className={streamingHere ? "streaming" : undefined}
+                              <div
+                                className={`md ${streamingHere ? "streaming" : ""}`}
                                 key={i}
                               >
-                                {part.text}
-                              </span>
+                                <MessageResponse>{part.text}</MessageResponse>
+                              </div>
                             );
                           }
 

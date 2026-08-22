@@ -107,6 +107,20 @@
   --border: var(--rule);
   --input: var(--rule-strong);
   --ring: var(--brand);
+  /*
+   * Sidebar tokens were missed on the first pass, and nothing used them until
+   * Streamdown's table chrome did — `bg-sidebar` on a wrapper is how a
+   * near-white card appeared around a table on a dark panel. Mapping the whole
+   * vocabulary, not the part currently in use, is the point of a bridge.
+   */
+  --sidebar: var(--surface-2);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: var(--ground);
+  --sidebar-accent: var(--surface-2);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--rule);
+  --sidebar-ring: var(--brand);
   /* the instrument panel is square-cornered; shadcn defaults to 10px */
   --radius: 2px;
 }
@@ -340,7 +354,7 @@ body {
 .chart-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
 .chart-val { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: 19px; margin-left: auto; }
 .chart-note { font-family: var(--font-data); font-size: 11px; color: var(--ink-3); margin-top: 8px; }
-.chart svg { width: 100%; height: 74px; display: block; margin-top: 10px; overflow: visible; }
+.chart svg { width: 100%; height: auto; display: block; overflow: visible; }
 .empty-chart {
   height: 74px; margin-top: 10px; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 8px;
@@ -703,7 +717,7 @@ body {
 
 /* the calendar wants the full width of the grid */
 .chart-wide { grid-column: 1 / -1; }
-.chart-wide svg { height: auto; }
+
 
 /* ------------------------------------------------------------------
  * Mobile.
@@ -777,3 +791,105 @@ body {
   .attachment-x { padding: 4px 8px; }
   .cov-bar { padding: 14px 16px; }
 }
+
+/* ---- plot frame + tooltip ---- */
+.plot { position: relative; margin-top: 10px; }
+
+/*
+ * A real tooltip, not SVG <title>. Native titles wait a second, cannot be
+ * styled, and do not exist on touch — which is where this is mostly read.
+ * Positioned in percentages of the plot so it tracks the mark at any width.
+ */
+.tip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 9px));
+  pointer-events: none;
+  z-index: 3;
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 6px 8px;
+  min-width: 84px;
+  background: var(--surface-2);
+  border: 1px solid var(--rule-strong);
+  box-shadow: var(--elev-hi);
+  font-family: var(--font-data);
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.tip b {
+  color: var(--ink); font-weight: 600; font-size: 10px;
+  letter-spacing: .06em; text-transform: uppercase;
+}
+
+/* charts drawn by the model, inside chat */
+.chat-chart {
+  margin: 2px 0; padding: 10px 11px 8px;
+  border: 1px solid var(--rule); background: var(--surface-2);
+}
+.chat-chart figcaption {
+  font-family: var(--font-data); font-size: 11px; color: var(--ink-2);
+  letter-spacing: .04em; line-height: 1.4;
+}
+.chat-chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chat-chart-axes {
+  display: flex; gap: 12px; margin-top: 6px;
+  font-family: var(--font-data); font-size: 10px; color: var(--ink-3);
+}
+
+/* ---- markdown from the model ----
+ * The model writes tables and lists; they were being poured into a <span> as
+ * literal text. These style what the renderer actually emits.
+ */
+.md > * { margin: 0 0 8px; }
+.md > *:last-child { margin-bottom: 0; }
+.md p { line-height: 1.55; }
+.md strong { color: var(--ink); font-weight: 600; }
+.md ul, .md ol { padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.md li { line-height: 1.5; }
+.md h1, .md h2, .md h3 {
+  font-family: var(--font-data); font-size: 11px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-3); margin: 12px 0 5px;
+}
+.md a { color: var(--brand); text-underline-offset: 2px; }
+.md hr { border: 0; border-top: 1px solid var(--rule); margin: 10px 0; }
+.md blockquote {
+  margin: 0; padding-left: 10px; border-left: 2px solid var(--rule-strong);
+  color: var(--ink-2);
+}
+/*
+ * Tables. Streamdown already supplies a wrapper that scrolls horizontally, so
+ * these only restyle it into the instrument-panel language rather than adding
+ * a second scroll container.
+ */
+.md [data-streamdown="table-wrapper"] {
+  margin: 8px 0; padding: 0; gap: 0;
+  border: 1px solid var(--rule); background: var(--surface);
+  border-radius: 0;
+}
+.md [data-streamdown="table-wrapper"] > div {
+  border: 0; border-radius: 0; background: transparent;
+}
+.md [data-streamdown="table"] {
+  font-family: var(--font-data); font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.md [data-streamdown="table-header"] { background: var(--surface-2); }
+.md th, .md td {
+  padding: 5px 10px; text-align: left; white-space: nowrap;
+  border-bottom: 1px solid var(--rule);
+}
+.md th {
+  color: var(--ink-3); font-weight: 500; letter-spacing: .06em;
+  text-transform: uppercase; font-size: 9.5px;
+}
+.md td { color: var(--ink-2); }
+.md tr:last-child td { border-bottom: none; }
+
+/* keep the caret at the end of streaming markdown, not on its own line */
+.md.streaming > *:last-child::after {
+  content: ""; display: inline-block; width: 2px; height: 1em;
+  background: var(--brand); margin-left: 3px; vertical-align: -0.14em;
+  animation: caret 1s steps(2, start) infinite;
+}
+.md.streaming::after { content: none; }
