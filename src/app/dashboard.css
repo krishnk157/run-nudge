@@ -472,3 +472,29 @@ body {
 }
 .meal-actions { display: flex; gap: 8px; }
 .hint-err { color: var(--crit); }
+
+/* attached photos, above the composer */
+.attachments {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 8px 8px 0;
+}
+.attachment {
+  display: flex; align-items: center; gap: 7px;
+  padding: 4px 6px 4px 4px;
+  border: 1px solid var(--rule-strong); background: var(--surface-2);
+  font-family: var(--font-data); font-size: 11px; color: var(--ink-2);
+  max-width: 100%;
+}
+.attachment-thumb {
+  width: 30px; height: 30px; flex: 0 0 auto;
+  background-size: cover; background-position: center;
+  background-color: var(--ground); border: 1px solid var(--rule);
+}
+.attachment-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px;
+}
+.attachment-x {
+  border: 0; background: none; color: var(--ink-3); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 0 2px;
+}
+.attachment-x:hover { color: var(--crit); }

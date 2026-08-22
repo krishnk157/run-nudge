@@ -14,15 +14,12 @@ import {
 import { Message, MessageContent } from "@/components/ai-elements/message";
 import {
   PromptInput,
-  PromptInputActionAddAttachments,
-  PromptInputActionMenu,
-  PromptInputActionMenuContent,
-  PromptInputActionMenuTrigger,
   PromptInputBody,
   PromptInputFooter,
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
+  usePromptInputAttachments,
 } from "@/components/ai-elements/prompt-input";
 import {
   Tool,
@@ -31,6 +28,8 @@ import {
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool";
+import { ImageIcon } from "lucide-react";
+
 import { ChatChart } from "./Charts";
 import { MealDraft, type MealDraftSpec } from "./MealDraft";
 
@@ -57,6 +56,72 @@ interface ChartOutput {
   title: string;
   type: "bar" | "line" | "scatter";
   points: { x: string; y: number }[];
+}
+
+
+/**
+ * Attachment strip and attach button.
+ *
+ * Both exist because this build of AI Elements holds attachments in state and
+ * renders nothing for them — there is no `PromptInputAttachments` component to
+ * import. Picking a photo therefore produced no visible change at all, which
+ * is indistinguishable from the feature being broken, and was reported as
+ * exactly that. The file was attached the whole time.
+ *
+ * The attach control is a plain button rather than the dropdown-menu item the
+ * library suggests. One less thing between the athlete and the camera roll,
+ * and one less component that can fail inside a portalled slide-over.
+ *
+ * Both must be rendered inside <PromptInput> — the hook reads its context.
+ */
+function AttachButton() {
+  const attachments = usePromptInputAttachments();
+  return (
+    <button
+      className="btn"
+      type="button"
+      onClick={() => attachments.openFileDialog()}
+      title="Attach a photo of a meal"
+    >
+      <ImageIcon size={13} aria-hidden /> Photo
+    </button>
+  );
+}
+
+function AttachedPhotos() {
+  const attachments = usePromptInputAttachments();
+  if (attachments.files.length === 0) return null;
+
+  return (
+    <div className="attachments">
+      {attachments.files.map((file) => (
+        <div className="attachment" key={file.id}>
+          {file.mediaType?.startsWith("image/") ? (
+            // A background image rather than <img>: the url is a blob: handle
+            // that AI Elements converts to a data URL on submit, and there is
+            // nothing for next/image to optimise.
+            <span
+              className="attachment-thumb"
+              role="img"
+              aria-label={file.filename ?? "attached photo"}
+              style={{ backgroundImage: `url(${file.url})` }}
+            />
+          ) : (
+            <span className="attachment-thumb" aria-hidden />
+          )}
+          <span className="attachment-name">{file.filename ?? "photo"}</span>
+          <button
+            className="attachment-x"
+            type="button"
+            onClick={() => attachments.remove(file.id)}
+            aria-label={`Remove ${file.filename ?? "photo"}`}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function ChatPanel() {
@@ -261,6 +326,7 @@ export function ChatPanel() {
                   }}
                 >
                   <PromptInputBody>
+                    <AttachedPhotos />
                     <PromptInputTextarea
                       ref={inputRef}
                       value={text}
@@ -271,16 +337,11 @@ export function ChatPanel() {
                   </PromptInputBody>
                   <PromptInputFooter>
                     <PromptInputTools>
-                      <PromptInputActionMenu>
-                        <PromptInputActionMenuTrigger />
-                        <PromptInputActionMenuContent>
-                          <PromptInputActionAddAttachments label="Photograph a meal" />
-                        </PromptInputActionMenuContent>
-                      </PromptInputActionMenu>
+                      <AttachButton />
                     </PromptInputTools>
                     <span className={`hint ${attachError ? "hint-err" : ""}`}>
                       {attachError ??
-                        "Answers come from SQL over your data — never estimated."}
+                        "Ask about training, or describe / photograph a meal."}
                     </span>
                     <PromptInputSubmit status={status} disabled={busy} />
                   </PromptInputFooter>
