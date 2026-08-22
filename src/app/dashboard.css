@@ -25,6 +25,19 @@
      active theme — without it the panel's scrollbar is a white stripe. */
   color-scheme: light dark;
 
+  /*
+   * Depth tokens. The first version had none: every panel was a 1px border on
+   * a flat fill, which is legible but reads as a wireframe rather than an
+   * instrument. These add a hairline top highlight and a soft shadow so panels
+   * sit *on* the ground instead of being drawn onto it — the same trick a
+   * physical control panel gets for free from a bevel.
+   */
+  --hairline: rgba(255, 255, 255, 0.75);
+  --elev: 0 1px 2px rgba(16, 40, 52, 0.05), 0 10px 26px -22px rgba(16, 40, 52, 0.5);
+  --elev-hi: 0 2px 6px rgba(16, 40, 52, 0.09), 0 18px 40px -26px rgba(16, 40, 52, 0.55);
+  /* phosphor bloom behind the large readouts; off in light mode. */
+  --glow: transparent;
+
   --font-data: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
 }
@@ -45,6 +58,11 @@
     --warn: #d3a047;
     --crit: #df6a5f;
     --dormant: #5e7482;
+
+    --hairline: rgba(255, 255, 255, 0.055);
+    --elev: 0 1px 0 rgba(0, 0, 0, 0.4), 0 14px 34px -26px #000;
+    --elev-hi: 0 1px 0 rgba(0, 0, 0, 0.5), 0 22px 48px -26px #000;
+    --glow: color-mix(in srgb, var(--brand) 30%, transparent);
   }
 }
 
@@ -129,8 +147,24 @@ body {
   font-family: var(--font-data); font-size: 13px; font-weight: 600;
   letter-spacing: 0.03em; display: flex; align-items: center; gap: 9px;
 }
-.pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--dormant); flex: none; }
-.pulse.live { background: var(--ok); }
+.top::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--brand), transparent);
+  opacity: .5;
+}
+.pulse {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--dormant); flex: none;
+}
+.pulse.live {
+  background: var(--ok);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent);
+  animation: halo 2.4s ease-out infinite;
+}
+@keyframes halo {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent); }
+  70%  { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
 .brand-sub { color: var(--ink-3); font-weight: 400; letter-spacing: 0.1em; font-size: 10px; }
 
 .btn {
@@ -157,17 +191,41 @@ body {
 .sec-head .meta { margin-left: auto; }
 
 /* readouts */
+/*
+ * One rule for every panel: hairline on top, shadow underneath. Applied via a
+ * shared selector rather than repeated so the depth stays consistent when a
+ * new panel is added — the flatness was partly just drift between blocks.
+ */
+.readouts, .cov, .feed, .charts, .body-form {
+  box-shadow: inset 0 1px 0 var(--hairline), var(--elev);
+}
+
 .readouts {
   display: grid; grid-template-columns: repeat(4, 1fr);
   border: 1px solid var(--rule); border-top: none; background: var(--surface);
 }
-.ro { padding: 16px 18px 18px; border-right: 1px solid var(--rule); }
+.ro {
+  padding: 16px 18px 18px; border-right: 1px solid var(--rule);
+  position: relative; transition: background .18s ease;
+}
 .ro:last-child { border-right: none; }
+/* A tick that lights up on hover — the panel responding to attention, which
+   is most of what "interactive" means on a page that is mostly readouts. */
+.ro::before {
+  content: ""; position: absolute; inset: -1px auto auto 0; height: 2px; width: 0;
+  background: var(--brand); transition: width .22s ease;
+}
+.ro:hover { background: var(--surface-2); }
+.ro:hover::before { width: 34px; }
 .ro-val {
   font-family: var(--font-data); font-variant-numeric: tabular-nums;
-  font-size: 30px; line-height: 1.05; letter-spacing: -0.02em; margin: 8px 0 4px;
+  font-size: 33px; line-height: 1.05; letter-spacing: -0.03em; margin: 9px 0 5px;
+  text-shadow: 0 0 26px var(--glow);
 }
-.ro-val small { font-size: 15px; color: var(--ink-3); letter-spacing: 0; }
+.ro-val small, .ro-val .unit {
+  font-size: 14px; color: var(--ink-3); letter-spacing: 0.02em;
+  text-shadow: none; margin-left: 2px;
+}
 .ro-note { font-size: 12px; color: var(--ink-2); font-family: var(--font-data); }
 .ro.is-void .ro-val { color: var(--dormant); }
 .ro.is-void {
@@ -211,7 +269,22 @@ body {
 
 /* feed */
 .feed { border: 1px solid var(--rule); border-top: none; background: var(--surface); }
-.entry { display: grid; grid-template-columns: 108px 1fr; }
+/* A severity stripe, so what needs attention reads before any of the words
+   do. Withheld entries get a dashed one — present, but visibly not an alert. */
+.entry {
+  display: grid; grid-template-columns: 108px 1fr;
+  position: relative; transition: background .18s ease;
+}
+.entry::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  background: var(--brand);
+}
+.entry.quiet::before {
+  background: repeating-linear-gradient(
+    180deg, var(--dormant) 0 3px, transparent 3px 7px
+  );
+}
+.entry:hover { background: color-mix(in srgb, var(--surface-2) 55%, transparent); }
 .entry + .entry { border-top: 1px solid var(--rule); }
 .entry-when {
   padding: 18px 14px 18px 18px; border-right: 1px solid var(--rule);
@@ -248,7 +321,20 @@ body {
   border: 1px solid var(--rule); border-top: none; background: var(--surface);
   display: grid; grid-template-columns: 1fr 1fr;
 }
-.chart { padding: 16px 18px 18px; border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.chart {
+  padding: 16px 18px 18px; border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  position: relative; transition: background .18s ease;
+}
+.chart:hover { background: var(--surface-2); }
+/* The charts have been clickable since Day 6 and never said so. */
+.chart::after {
+  content: "ask ↗"; position: absolute; top: 14px; right: 16px;
+  font-family: var(--font-data); font-size: 10px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--brand);
+  opacity: 0; transition: opacity .18s ease;
+}
+.chart:hover::after { opacity: 1; }
 .chart:nth-child(2n) { border-right: none; }
 .chart:nth-last-child(-n + 2) { border-bottom: none; }
 .chart-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
@@ -509,4 +595,97 @@ body {
   background-position: center;
   background-color: var(--ground);
   border: 1px solid var(--rule-strong);
+}
+
+/* ---- motion ----
+ * Two effects only, both tied to meaning: sections settle in reading order on
+ * load, and a line chart draws itself left to right, which is the direction
+ * time runs in. Everything else stays still — a dashboard that fidgets is
+ * harder to read, not livelier.
+ */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(7px); }
+  to   { opacity: 1; transform: none; }
+}
+.sec { animation: rise .45s cubic-bezier(.22, .8, .3, 1) both; }
+.sec:nth-of-type(2) { animation-delay: .05s; }
+.sec:nth-of-type(3) { animation-delay: .1s; }
+.sec:nth-of-type(4) { animation-delay: .15s; }
+.sec:nth-of-type(5) { animation-delay: .2s; }
+
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.chart svg .draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: draw 1.1s cubic-bezier(.4, 0, .2, 1) .15s forwards;
+}
+
+/* ---- chat: what the model is doing ---- */
+.thinking {
+  display: flex; align-items: center; gap: 9px;
+  font-family: var(--font-data); font-size: 11.5px; color: var(--ink-3);
+  letter-spacing: .04em;
+}
+.thinking-dots { display: inline-flex; gap: 3px; }
+.thinking-dots i {
+  width: 4px; height: 4px; background: var(--brand); border-radius: 50%;
+  animation: blip 1.1s ease-in-out infinite;
+}
+.thinking-dots i:nth-child(2) { animation-delay: .15s; }
+.thinking-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes blip {
+  0%, 80%, 100% { opacity: .25; transform: translateY(0); }
+  40%           { opacity: 1;   transform: translateY(-3px); }
+}
+/* The label itself breathes, so a slow query still looks alive. */
+.thinking-label {
+  background: linear-gradient(
+    90deg, var(--ink-3) 0%, var(--ink) 45%, var(--ink-3) 90%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: sweep 2.1s linear infinite;
+}
+@keyframes sweep {
+  from { background-position: 120% 0; }
+  to   { background-position: -60% 0; }
+}
+
+/* A caret on the text still arriving. */
+.streaming::after {
+  content: ""; display: inline-block; width: 2px; height: 1em;
+  background: var(--brand); margin-left: 2px; vertical-align: -0.14em;
+  animation: caret 1s steps(2, start) infinite;
+}
+@keyframes caret { 50% { opacity: 0; } }
+
+/* A tool call that is still running should look like it. */
+.sheet .tool-running {
+  border-color: color-mix(in srgb, var(--brand) 50%, var(--rule));
+  position: relative;
+  overflow: hidden;
+}
+.sheet .tool-running::after {
+  content: ""; position: absolute; left: 0; top: 0; height: 2px; width: 34%;
+  background: linear-gradient(90deg, transparent, var(--brand), transparent);
+  animation: track 1.4s ease-in-out infinite;
+}
+@keyframes track {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(340%); }
+}
+
+.suggestion { transition: border-color .15s, color .15s, transform .15s; }
+.suggestion:hover { transform: translateY(-1px); }
+.btn { transition: border-color .15s, color .15s, background .15s; }
+.btn:hover { background: var(--surface-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sec, .chart svg .draw, .thinking-dots i, .thinking-label,
+  .streaming::after, .pulse.live, .tool-running::after {
+    animation: none;
+  }
+  .chart svg .draw { stroke-dasharray: none; stroke-dashoffset: 0; }
+  .thinking-label { color: var(--ink-2); background: none; -webkit-text-fill-color: currentColor; }
+  .suggestion:hover { transform: none; }
 }

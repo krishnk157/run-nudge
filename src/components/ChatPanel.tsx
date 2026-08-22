@@ -30,6 +30,8 @@ import {
 } from "@/components/ai-elements/tool";
 import { ImageIcon } from "lucide-react";
 
+import { activityLabel } from "@/lib/chat/activity";
+
 import { ChatChart } from "./Charts";
 import { MealDraft, type MealDraftSpec } from "./MealDraft";
 
@@ -124,6 +126,20 @@ function AttachedPhotos() {
   );
 }
 
+
+function Thinking({ label }: { label: string }) {
+  return (
+    <div className="thinking" aria-live="polite">
+      <span className="thinking-dots" aria-hidden>
+        <i />
+        <i />
+        <i />
+      </span>
+      <span className="thinking-label">{label}</span>
+    </div>
+  );
+}
+
 export function ChatPanel() {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
@@ -135,6 +151,7 @@ export function ChatPanel() {
   });
 
   const busy = status === "submitted" || status === "streaming";
+  const activity = activityLabel(messages, status);
 
   // "Has this hydrated?" — the portal needs `document`, and rendering it during
   // SSR (or on the hydration pass, when the server produced nothing) is a
@@ -246,7 +263,18 @@ export function ChatPanel() {
                       <MessageContent>
                         {message.parts.map((part, i) => {
                           if (part.type === "text") {
-                            return <span key={i}>{part.text}</span>;
+                            const streamingHere =
+                              status === "streaming" &&
+                              message === messages.at(-1) &&
+                              i === message.parts.length - 1;
+                            return (
+                              <span
+                                className={streamingHere ? "streaming" : undefined}
+                                key={i}
+                              >
+                                {part.text}
+                              </span>
+                            );
                           }
 
                           // The photo the athlete sent, in their own message.
@@ -300,7 +328,20 @@ export function ChatPanel() {
                             const input = p.input as
                               { query?: string; purpose?: string } | undefined;
                             return (
-                              <Tool key={i} defaultOpen={false}>
+                              <Tool
+                                key={i}
+                                defaultOpen={false}
+                                // The vendored Tool reflects only open/closed
+                                // as a data attribute, not whether the call is
+                                // still running, so the running state is put on
+                                // the element here rather than selected for.
+                                className={
+                                  p.state === "output-available" ||
+                                  p.state === "output-error"
+                                    ? "tool-done"
+                                    : "tool-running"
+                                }
+                              >
                                 <ToolHeader
                                   type={p.type}
                                   state={p.state}
@@ -324,6 +365,8 @@ export function ChatPanel() {
                       </MessageContent>
                     </Message>
                   ))}
+
+                  {activity && <Thinking label={activity} />}
                 </ConversationContent>
                 <ConversationScrollButton />
               </Conversation>

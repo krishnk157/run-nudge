@@ -13,6 +13,42 @@ import type { WeightPoint } from "@/lib/nutrition/body";
 
 const DAY = 86_400_000;
 
+/**
+ * Chart furniture: a faint baseline grid, and a gradient for area fills.
+ *
+ * The grid is the reason these read as instruments rather than decoration —
+ * it gives the eye something to measure against, which a bare line does not.
+ * It is deliberately faint enough that the data always wins.
+ *
+ * `id` is namespaced per chart because SVG gradient ids are global to the
+ * document, and two charts sharing one id means the second silently reuses
+ * the first's colour.
+ */
+function Grid({ id, tint }: { id: string; tint: string }) {
+  return (
+    <>
+      <defs>
+        <linearGradient id={`${id}-fill`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={tint} stopOpacity="0.22" />
+          <stop offset="100%" stopColor={tint} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {[18, 36, 54].map((y) => (
+        <line
+          key={y}
+          x1="0"
+          y1={y}
+          x2="300"
+          y2={y}
+          stroke="var(--rule)"
+          strokeWidth="0.5"
+          opacity="0.65"
+        />
+      ))}
+    </>
+  );
+}
+
 export function LoadBars({ weekly }: { weekly: WeeklyPoint[] }) {
   if (weekly.length === 0) return null;
 
@@ -41,6 +77,7 @@ export function LoadBars({ weekly }: { weekly: WeeklyPoint[] }) {
 
   return (
     <svg viewBox="0 0 300 74" role="img" aria-label="Weekly training load">
+      <Grid id="load" tint="var(--brand)" />
       <line x1="0" y1="73" x2="300" y2="73" stroke="var(--rule-strong)" strokeWidth="1" />
       {filled.map((w, i) => {
         const x = i * bw + 1.5;
@@ -111,16 +148,35 @@ export function EfficiencyChart({ points }: { points: EfficiencyPoint[] }) {
 
   return (
     <svg viewBox="0 0 300 74" role="img" aria-label="Aerobic efficiency over time">
+      <Grid id="eff" tint="var(--brand)" />
       <line x1="0" y1="73" x2="300" y2="73" stroke="var(--rule-strong)" strokeWidth="1" />
+
+      {/* Fill under each segment only — never across a gap, for the same
+          reason the line breaks there. */}
+      {segments.map((seg, i) =>
+        seg.length > 1 ? (
+          <polygon
+            key={`fill-${i}`}
+            points={[
+              `${xs(seg[0].date)},70`,
+              ...seg.map((p) => `${xs(p.date)},${ys(p.index)}`),
+              `${xs(seg.at(-1)!.date)},70`,
+            ].join(" ")}
+            fill="url(#eff-fill)"
+          />
+        ) : null,
+      )}
+
       {segments.map((seg, i) =>
         seg.length > 1 ? (
           <polyline
             key={`seg-${i}`}
+            className="draw"
+            pathLength={1}
             points={seg.map((p) => `${xs(p.date)},${ys(p.index)}`).join(" ")}
             fill="none"
             stroke="var(--brand)"
-            strokeWidth="1.5"
-            opacity={0.55}
+            strokeWidth="1.75"
           />
         ) : null,
       )}
@@ -208,6 +264,7 @@ export function WeightChart({ points }: { points: WeightPoint[] }) {
 
   return (
     <svg viewBox="0 0 300 74" role="img" aria-label="Body weight by goal phase">
+      <Grid id="wt" tint="var(--brand)" />
       <line x1="0" y1="73" x2="300" y2="73" stroke="var(--rule-strong)" strokeWidth="1" />
 
       {/* Boundaries first, so the data sits on top of them. */}
@@ -233,11 +290,12 @@ export function WeightChart({ points }: { points: WeightPoint[] }) {
         seg.length > 1 ? (
           <polyline
             key={`wseg-${i}`}
+            className="draw"
+            pathLength={1}
             points={seg.map((p) => `${xs(p.date)},${ys(p.weightKg)}`).join(" ")}
             fill="none"
             stroke={colour(seg[0].phase)}
-            strokeWidth="1.5"
-            opacity={0.75}
+            strokeWidth="1.75"
           />
         ) : null,
       )}
