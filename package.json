@@ -19,7 +19,8 @@
     "simulate": "tsx --tsconfig tsconfig.json scripts/simulate.ts",
     "webhook": "tsx --tsconfig tsconfig.json scripts/webhook.ts",
     "notify": "tsx --tsconfig tsconfig.json scripts/notify.ts",
-    "cost": "tsx --tsconfig tsconfig.json scripts/cost.ts"
+    "cost": "tsx --tsconfig tsconfig.json scripts/cost.ts",
+    "eval": "tsx --tsconfig tsconfig.json scripts/eval.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.39",

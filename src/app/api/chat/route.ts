@@ -12,6 +12,13 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
+ * Tool-loop ceiling. Enough for write-query → read-rows → answer twice over,
+ * with room to recover from a SQL error, and low enough that a model looping
+ * on itself stops rather than spending credits in a circle.
+ */
+const MAX_STEPS = 10;
+
+/**
  * Chat over the athlete's own data, on the AI SDK.
  *
  * `streamText` runs the tool loop and streams typed message parts to the
@@ -56,6 +63,11 @@ export async function POST(req: Request) {
    * an hour after the last one still pays the write. This helps within a
    * question, not across a day.
    */
+  // Captured once: prepareStep needs to rebuild the system message with a
+  // budget note appended, and reading it back off `initialInstructions` means
+  // handling the union of shapes that option accepts.
+  const instructions = chatSystem(await athleteToday());
+
   const startedAt = Date.now();
   const result = streamText({
     model: anthropic(MODELS.chat),
@@ -68,12 +80,42 @@ export async function POST(req: Request) {
       role: "system",
       // Per request, and on the athlete's clock: a module-level UTC date got
       // a meal filed to the wrong day twice over.
-      content: chatSystem(await athleteToday()),
+      content: instructions,
       providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
     },
     messages: await convertToModelMessages(messages),
     tools: chatTools,
-    stopWhen: stepCountIs(6),
+    /*
+     * The budget is a real constraint, and running into it silently is worse
+     * than running into it loudly.
+     *
+     * At six steps and on a more query-happy model, "what was my fastest 5k"
+     * spent every step querying and returned *no text at all* — a blank reply,
+     * no error, nothing on screen to explain it. The regression set caught it
+     * on its first run; nothing in the type system could have.
+     *
+     * Two changes. The ceiling goes up, and `prepareStep` warns the model as
+     * it approaches: told it has one step left, it answers from the rows it
+     * already has instead of issuing a seventh query it will never get to
+     * read. A budget the model can see is one it can plan against.
+     */
+    stopWhen: stepCountIs(MAX_STEPS),
+    prepareStep: ({ stepNumber }) => {
+      const remaining = MAX_STEPS - stepNumber;
+      if (remaining > 2) return {};
+      return {
+        instructions: {
+          role: "system" as const,
+          // No cache breakpoint on this variant: it differs every step, so
+          // caching it would write a new entry each time and read none.
+          content: `${instructions}
+
+# Budget
+
+You have ${remaining} step${remaining === 1 ? "" : "s"} left in this turn. Answer now from the rows you already have. If that is not enough to answer properly, say what you were unable to establish and why — an incomplete answer that names its gap is useful; silence is not.`,
+        },
+      };
+    },
     onFinish: ({ usage, steps }) => {
       void recordCall({
         role: "chat",
