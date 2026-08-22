@@ -3,7 +3,11 @@ import { notifications, webhookEvents } from "@/db/schema";
 import { computeInsights } from "@/lib/analysis/engine";
 import { deleteActivity, upsertActivities } from "@/lib/ingest/activities";
 import { judgeInsights } from "@/lib/llm/judge";
-import { defaultNotifier, deliverPending } from "@/lib/notify/deliver";
+import {
+  defaultNotifier,
+  deliverPending,
+  requeueFailed,
+} from "@/lib/notify/deliver";
 import { StravaClient } from "@/lib/strava/client";
 import { eq } from "drizzle-orm";
 
@@ -128,8 +132,17 @@ export async function processEvent(
     // minutes after the run, not on the next cron tick. A send failure leaves
     // the row as `send_failed` for the sweep to retry; it never re-judges,
     // and it never turns a delivery problem into a pipeline failure.
+    //
+    // Requeue first, and that is a deployment constraint made visible in the
+    // code. Vercel's Hobby plan allows one cron run per day, so the delivery
+    // sweep that used to run hourly now runs once each morning — which would
+    // leave a notification that failed to send sitting for up to 24 hours.
+    // Retrying stale failures here means the next real activity heals them,
+    // and this athlete trains four or five times a week, so in practice the
+    // backstop is rarely what recovers a message.
     let delivered: string | null = null;
     if (decision === "notify") {
+      await requeueFailed(24);
       const summary = await deliverPending(defaultNotifier(), { limit: 5 });
       delivered = summary.sent > 0 ? "sent" : (summary.errors[0] ?? "not sent");
     }
