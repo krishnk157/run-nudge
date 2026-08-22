@@ -3,7 +3,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { sql } from "@/db/client";
 import { getAnchors } from "@/lib/analysis/athlete";
 import { computeInsights } from "@/lib/analysis/engine";
-import { JUDGE_MODEL } from "./judge";
+import { MODELS } from "./models";
+import { recordCall } from "./usage";
 
 /**
  * The weekly digest — the plan's counterweight to the reactive path.
@@ -205,12 +206,13 @@ export async function writeDigest(asOf = new Date()): Promise<{
 
   const payload = JSON.stringify({ week: stats, anchors, findings: report.findings }, null, 1);
 
+  const startedAt = Date.now();
   const response = await client().messages.create({
-    model: JUDGE_MODEL,
+    model: MODELS.digest,
     max_tokens: 8000,
-    system: [
-      { type: "text", text: DIGEST_SYSTEM, cache_control: { type: "ephemeral" } },
-    ],
+    // Four calls a month: no cache breakpoint, for the same reason as the
+    // judge — a weekly job can never hit a five-minute cache.
+    system: DIGEST_SYSTEM,
     messages: [{ role: "user", content: payload }],
     output_config: { format: { type: "json_schema", schema: SCHEMA } },
   });
@@ -220,6 +222,7 @@ export async function writeDigest(asOf = new Date()): Promise<{
     inputTokens: response.usage.input_tokens,
     outputTokens: response.usage.output_tokens,
   };
+  void recordCall({ role: "digest", ...usage, ms: Date.now() - startedAt });
 
   if (response.stop_reason === "refusal") {
     return {

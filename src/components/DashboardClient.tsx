@@ -2,8 +2,23 @@
 
 import type { ReactNode } from "react";
 
-import { EfficiencyChart as EfficiencySvg, LoadBars as LoadBarsSvg } from "./Charts";
-import type { EfficiencyPoint, WeeklyPoint } from "@/lib/dashboard/data";
+import {
+  EfficiencyChart as EfficiencySvg,
+  LoadBars as LoadBarsSvg,
+  PaceChart as PaceSvg,
+  SparseSeries as SparseSvg,
+  SportMix as SportMixSvg,
+  TrainingCalendar as CalendarSvg,
+  WeightChart as WeightSvg,
+} from "./Charts";
+import type {
+  DayLoad,
+  EfficiencyPoint,
+  PacePoint,
+  SeriesPoint,
+  WeeklyPoint,
+} from "@/lib/dashboard/data";
+import type { WeightPoint } from "@/lib/nutrition/body";
 
 /**
  * Client wrappers. The charts themselves are pure SVG and could render on the
@@ -19,6 +34,31 @@ export function EfficiencyChart({ points }: { points: EfficiencyPoint[] }) {
   return <EfficiencySvg points={points} />;
 }
 
+export function WeightChart({ points }: { points: WeightPoint[] }) {
+  return <WeightSvg points={points} />;
+}
+
+export function SportMix({ weekly }: { weekly: WeeklyPoint[] }) {
+  return <SportMixSvg weekly={weekly} />;
+}
+
+export function PaceChart({ points }: { points: PacePoint[] }) {
+  return <PaceSvg points={points} />;
+}
+
+export function SparseSeries(props: {
+  points: SeriesPoint[];
+  label: string;
+  today: string;
+  decimals?: number;
+}) {
+  return <SparseSvg {...props} />;
+}
+
+export function TrainingCalendar(props: { days: DayLoad[]; today: string }) {
+  return <CalendarSvg {...props} />;
+}
+
 /**
  * A chart that seeds the chat with a question about itself.
  *
@@ -29,13 +69,16 @@ export function EfficiencyChart({ points }: { points: EfficiencyPoint[] }) {
 export function AskLink({
   question,
   children,
+  wide,
 }: {
   question: string;
   children: ReactNode;
+  /** Span the full grid — for charts that need the width, like the calendar. */
+  wide?: boolean;
 }) {
   return (
     <div
-      className="chart"
+      className={`chart ${wide ? "chart-wide" : ""}`}
       role="button"
       tabIndex={0}
       style={{ cursor: "pointer" }}

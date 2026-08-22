@@ -507,7 +507,7 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > **Still unverified:** the 5s statement timeout (tables too small to trigger it), adversarial
 > input against the SQL tool, the dashboard on a large dataset, and mobile layout.
 
-### Day 7 — Nutrition + body composition
+### Day 7 — Nutrition + body composition ✅
 
 > **▸ Added 2026-08-09.** New day, not a squeeze into Day 6. It sits here because meal logging
 > is conversational and therefore depends on Day 6's chat layer already existing.

@@ -15,6 +15,10 @@ import {
   type Consistency,
   type EfficiencyPoint,
 } from "./metrics";
+import {
+  currentPhaseTrend,
+  MIN_PHASE_READINGS,
+} from "@/lib/nutrition/body";
 import { needs, ok, type AthleteAnchors, type Finding } from "./types";
 
 /**
@@ -397,12 +401,91 @@ export interface RegisteredRule {
   run: Rule;
 }
 
+/**
+ * Weight moving against the declared goal.
+ *
+ * This is the only rule that reads data the athlete typed rather than data a
+ * device produced, and it is deliberately the most conservative one here. It
+ * reports a discrepancy between a stated intention and a measured direction —
+ * "you have been drifting down 0.3 kg/week during a bulk" — and then stops.
+ * It does not suggest eating more, because this system does not hold a calorie
+ * target and giving one would be dietary advice it has no standing to give.
+ *
+ * Everything is scoped to the current phase. Fitting across a phase boundary
+ * would produce a slope describing neither side of it, and the whole reason
+ * phases are stored as dated state is to make that mistake unrepresentable.
+ *
+ * `maintain` never fires: for a maintain phase, "flat" is agreement and any
+ * drift is the thing you'd want to know — but distinguishing meaningful drift
+ * from ordinary fluctuation needs a variance model this doesn't have, and a
+ * rule that fires on noise is worse than one that stays quiet.
+ */
+export const phaseDriftRule: Rule = async () => {
+  const trend = await currentPhaseTrend();
+
+  if (!trend.eligible) {
+    return {
+      rule: "phase_drift",
+      status: "ineligible",
+      data: {
+        phase: trend.phase ?? null,
+        readings: trend.readings ?? 0,
+        spanDays: trend.spanDays ?? 0,
+      },
+      eligibility: needs(
+        trend.reason ?? "not enough weigh-ins in the current phase",
+        trend.readings ?? 0,
+        MIN_PHASE_READINGS,
+      ),
+    };
+  }
+
+  if (trend.phase === "maintain" || trend.agrees) {
+    return {
+      rule: "phase_drift",
+      status: "quiet",
+      data: {
+        phase: trend.phase,
+        kgPerWeek: trend.kgPerWeek,
+        readings: trend.readings,
+        spanDays: trend.spanDays,
+      },
+      eligibility: ok(),
+    };
+  }
+
+  const direction = trend.kgPerWeek! > 0 ? "gaining" : "losing";
+  return {
+    rule: "phase_drift",
+    status: "fired",
+    severity: "info",
+    statement:
+      `Weight is ${direction} ${Math.abs(trend.kgPerWeek!)} kg/week during a ` +
+      `${trend.phase} phase that began ${trend.startedOn} — ` +
+      `${trend.readings} weigh-ins over ${trend.spanDays} days, ` +
+      `${trend.firstKg} kg to ${trend.lastKg} kg.`,
+    data: {
+      phase: trend.phase,
+      startedOn: trend.startedOn,
+      kgPerWeek: trend.kgPerWeek,
+      readings: trend.readings,
+      spanDays: trend.spanDays,
+      firstKg: trend.firstKg,
+      lastKg: trend.lastKg,
+    },
+    eligibility: ok(),
+  };
+};
+
+/* ------------------------------------------------------------------ */
+
 export const RULES: RegisteredRule[] = [
   { name: "acute_chronic_ratio", run: acwrRule },
   { name: "consistency", run: consistencyRule },
   { name: "aerobic_efficiency_trend", run: efficiencyRule },
   { name: "resting_hr_drift", run: restingHrRule },
   { name: "strength_progression", run: strengthRule },
+  { name: "phase_drift", run: phaseDriftRule },
 ];
 
 export async function loadContext(

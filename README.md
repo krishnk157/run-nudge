@@ -6,7 +6,7 @@ See [docs/PLAN.md](docs/PLAN.md) for the full plan and rationale.
 
 ## Status
 
-**Day 6 — chat + dashboard.** Strava ingestion (Day 1), Garmin metrics via a Python sidecar (Day 2), a deterministic insight engine with capability-gated rules (Day 3), and a webhook-driven pipeline where Claude judges whether findings warrant a notification (Day 4). Notifications arrive on Telegram with a weekly digest on cron (Day 5), and a dashboard plus AI SDK chat layer answer questions from live SQL (Day 6).
+**Day 7 — nutrition + body composition.** Strava ingestion (Day 1), Garmin metrics via a Python sidecar (Day 2), a deterministic insight engine with capability-gated rules (Day 3), and a webhook-driven pipeline where Claude judges whether findings warrant a notification (Day 4). Notifications arrive on Telegram with a weekly digest on cron (Day 5), and a dashboard plus AI SDK chat layer answer questions from live SQL (Day 6). Meals are logged conversationally — photo or text — through a propose-confirm-save flow where the model never states a total and never writes a row; weight and goal phases are dated state, and no trend is ever fitted across a phase boundary (Day 7).
 
 ## Stack
 
@@ -14,6 +14,7 @@ See [docs/PLAN.md](docs/PLAN.md) for the full plan and rationale.
 - Vercel AI SDK + AI Elements for the chat layer; Anthropic API for the judgment layer
 - Neon Postgres + Drizzle ORM
 - Strava REST API v3 (OAuth 2 + webhooks)
+- Meal totals computed in SQL from stored per-100g composition — never stored, never stated by the model
 - Python sidecar for Garmin Connect (unofficial API) — isolated; the app never imports it
 
 ## Setup

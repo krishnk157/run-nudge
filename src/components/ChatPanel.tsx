@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type ToolUIPart } from "ai";
+import { DefaultChatTransport, type FileUIPart, type ToolUIPart } from "ai";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 
@@ -11,13 +11,19 @@ import {
   ConversationEmptyState,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
-import { Message, MessageContent } from "@/components/ai-elements/message";
+import {
+  Message,
+  MessageContent,
+  MessageResponse,
+} from "@/components/ai-elements/message";
 import {
   PromptInput,
   PromptInputBody,
   PromptInputFooter,
   PromptInputSubmit,
   PromptInputTextarea,
+  PromptInputTools,
+  usePromptInputAttachments,
 } from "@/components/ai-elements/prompt-input";
 import {
   Tool,
@@ -26,7 +32,12 @@ import {
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool";
+import { ImageIcon } from "lucide-react";
+
+import { activityLabel } from "@/lib/chat/activity";
+
 import { ChatChart } from "./Charts";
+import { MealDraft, type MealDraftSpec } from "./MealDraft";
 
 /**
  * Chat, on the AI SDK's `useChat` with AI Elements components.
@@ -43,7 +54,7 @@ const SUGGESTIONS = [
   "How much did I train this week?",
   "Show my weekly load for the last 3 months",
   "What was my fastest 5k, and when?",
-  "How has my heart rate changed on runs?",
+  "I had 3 eggs and toast for breakfast",
 ];
 
 interface ChartOutput {
@@ -53,9 +64,90 @@ interface ChartOutput {
   points: { x: string; y: number }[];
 }
 
+
+/**
+ * Attachment strip and attach button.
+ *
+ * Both exist because this build of AI Elements holds attachments in state and
+ * renders nothing for them — there is no `PromptInputAttachments` component to
+ * import. Picking a photo therefore produced no visible change at all, which
+ * is indistinguishable from the feature being broken, and was reported as
+ * exactly that. The file was attached the whole time.
+ *
+ * The attach control is a plain button rather than the dropdown-menu item the
+ * library suggests. One less thing between the athlete and the camera roll,
+ * and one less component that can fail inside a portalled slide-over.
+ *
+ * Both must be rendered inside <PromptInput> — the hook reads its context.
+ */
+function AttachButton() {
+  const attachments = usePromptInputAttachments();
+  return (
+    <button
+      className="btn"
+      type="button"
+      onClick={() => attachments.openFileDialog()}
+      title="Attach a photo of a meal"
+    >
+      <ImageIcon size={13} aria-hidden /> Photo
+    </button>
+  );
+}
+
+function AttachedPhotos() {
+  const attachments = usePromptInputAttachments();
+  if (attachments.files.length === 0) return null;
+
+  return (
+    <div className="attachments">
+      {attachments.files.map((file) => (
+        <div className="attachment" key={file.id}>
+          {file.mediaType?.startsWith("image/") ? (
+            // A background image rather than <img>: the url is a blob: handle
+            // that AI Elements converts to a data URL on submit, and there is
+            // nothing for next/image to optimise.
+            <span
+              className="attachment-thumb"
+              role="img"
+              aria-label={file.filename ?? "attached photo"}
+              style={{ backgroundImage: `url(${file.url})` }}
+            />
+          ) : (
+            <span className="attachment-thumb" aria-hidden />
+          )}
+          <span className="attachment-name">{file.filename ?? "photo"}</span>
+          <button
+            className="attachment-x"
+            type="button"
+            onClick={() => attachments.remove(file.id)}
+            aria-label={`Remove ${file.filename ?? "photo"}`}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+function Thinking({ label }: { label: string }) {
+  return (
+    <div className="thinking" aria-live="polite">
+      <span className="thinking-dots" aria-hidden>
+        <i />
+        <i />
+        <i />
+      </span>
+      <span className="thinking-label">{label}</span>
+    </div>
+  );
+}
+
 export function ChatPanel() {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
+  const [attachError, setAttachError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const { messages, sendMessage, status } = useChat({
@@ -63,6 +155,7 @@ export function ChatPanel() {
   });
 
   const busy = status === "submitted" || status === "streaming";
+  const activity = activityLabel(messages, status);
 
   // "Has this hydrated?" — the portal needs `document`, and rendering it during
   // SSR (or on the hydration pass, when the server produced nothing) is a
@@ -101,17 +194,22 @@ export function ChatPanel() {
     if (open) setTimeout(() => inputRef.current?.focus(), 250);
   }, [open]);
 
-  const ask = (q: string) => {
+  const ask = (q: string, files?: FileUIPart[]) => {
     const trimmed = q.trim();
-    if (!trimmed || busy) return;
+    // A photo on its own is a complete message — "here, log this" — so an
+    // empty box with an attachment must still send.
+    if ((!trimmed && !files?.length) || busy) return;
     setText("");
-    void sendMessage({ text: trimmed });
+    void sendMessage({ text: trimmed, files });
   };
 
   return (
     <>
+      {/* No ⌘K badge: this is used mostly on a phone, where a keyboard hint is
+          advice you cannot take. The shortcut still works on a desktop — it is
+          just not advertised to people who have no keyboard. */}
       <button className="btn" onClick={() => setOpen(true)}>
-        Ask <kbd>⌘K</kbd>
+        Ask
       </button>
 
       {mounted &&
@@ -172,7 +270,46 @@ export function ChatPanel() {
                       <MessageContent>
                         {message.parts.map((part, i) => {
                           if (part.type === "text") {
-                            return <span key={i}>{part.text}</span>;
+                            const streamingHere =
+                              status === "streaming" &&
+                              message === messages.at(-1) &&
+                              i === message.parts.length - 1;
+
+                            // The athlete's own words are shown verbatim; the
+                            // model's go through the markdown renderer. Piping
+                            // its text straight into a <span> was why a table
+                            // of runs arrived as a wall of pipe characters —
+                            // the renderer was vendored and never called.
+                            if (message.role === "user") {
+                              return <span key={i}>{part.text}</span>;
+                            }
+                            return (
+                              <div
+                                className={`md ${streamingHere ? "streaming" : ""}`}
+                                key={i}
+                              >
+                                <MessageResponse>{part.text}</MessageResponse>
+                              </div>
+                            );
+                          }
+
+                          // The photo the athlete sent, in their own message.
+                          // Without this the picture vanished the moment it was
+                          // sent: the attachment strip cleared on submit and
+                          // nothing rendered the file part, so the model would
+                          // answer about an image that was no longer on screen.
+                          if (part.type === "file") {
+                            const f = part as FileUIPart;
+                            if (!f.mediaType?.startsWith("image/")) return null;
+                            return (
+                              <span
+                                className="msg-photo"
+                                key={i}
+                                role="img"
+                                aria-label={f.filename ?? "photo of a meal"}
+                                style={{ backgroundImage: `url(${f.url})` }}
+                              />
+                            );
                           }
 
                           // A chart tool result becomes an actual chart. Everything
@@ -190,12 +327,37 @@ export function ChatPanel() {
                             return null;
                           }
 
+                          // The meal card is interactive and unsaved: the
+                          // model proposed it, the athlete corrects the
+                          // portions, and only pressing Save writes anything.
+                          if (part.type === "tool-propose_meal") {
+                            const p = part as ToolUIPart;
+                            const out = p.output as MealDraftSpec | undefined;
+                            if (p.state === "output-available" && out?.items?.length) {
+                              return <MealDraft key={i} spec={out} />;
+                            }
+                            return null;
+                          }
+
                           if (part.type === "tool-query_metrics") {
                             const p = part as ToolUIPart;
                             const input = p.input as
                               { query?: string; purpose?: string } | undefined;
                             return (
-                              <Tool key={i} defaultOpen={false}>
+                              <Tool
+                                key={i}
+                                defaultOpen={false}
+                                // The vendored Tool reflects only open/closed
+                                // as a data attribute, not whether the call is
+                                // still running, so the running state is put on
+                                // the element here rather than selected for.
+                                className={
+                                  p.state === "output-available" ||
+                                  p.state === "output-error"
+                                    ? "tool-done"
+                                    : "tool-running"
+                                }
+                              >
                                 <ToolHeader
                                   type={p.type}
                                   state={p.state}
@@ -219,18 +381,30 @@ export function ChatPanel() {
                       </MessageContent>
                     </Message>
                   ))}
+
+                  {activity && <Thinking label={activity} />}
                 </ConversationContent>
                 <ConversationScrollButton />
               </Conversation>
 
               <div className="sheet-foot">
                 <PromptInput
+                  accept="image/*"
+                  multiple
+                  maxFiles={4}
+                  // Anthropic rejects images past ~5 MB and a modern phone
+                  // camera clears that on a good day. Failing here with a
+                  // readable message beats a 400 from the API mid-stream.
+                  maxFileSize={5 * 1024 * 1024}
+                  onError={(err) => setAttachError(err.message)}
                   onSubmit={(msg, e) => {
                     e.preventDefault();
-                    ask(msg.text ?? "");
+                    setAttachError(null);
+                    ask(msg.text ?? "", msg.files);
                   }}
                 >
                   <PromptInputBody>
+                    <AttachedPhotos />
                     <PromptInputTextarea
                       ref={inputRef}
                       value={text}
@@ -240,13 +414,14 @@ export function ChatPanel() {
                     />
                   </PromptInputBody>
                   <PromptInputFooter>
-                    <span className="hint">
-                      Answers come from SQL over your data — never estimated.
+                    <PromptInputTools>
+                      <AttachButton />
+                    </PromptInputTools>
+                    <span className={`hint ${attachError ? "hint-err" : ""}`}>
+                      {attachError ??
+                        "Ask about training, or describe / photograph a meal."}
                     </span>
-                    <PromptInputSubmit
-                      status={status}
-                      disabled={!text.trim() && !busy}
-                    />
+                    <PromptInputSubmit status={status} disabled={busy} />
                   </PromptInputFooter>
                 </PromptInput>
               </div>

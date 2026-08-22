@@ -25,6 +25,19 @@
      active theme — without it the panel's scrollbar is a white stripe. */
   color-scheme: light dark;
 
+  /*
+   * Depth tokens. The first version had none: every panel was a 1px border on
+   * a flat fill, which is legible but reads as a wireframe rather than an
+   * instrument. These add a hairline top highlight and a soft shadow so panels
+   * sit *on* the ground instead of being drawn onto it — the same trick a
+   * physical control panel gets for free from a bevel.
+   */
+  --hairline: rgba(255, 255, 255, 0.75);
+  --elev: 0 1px 2px rgba(16, 40, 52, 0.05), 0 10px 26px -22px rgba(16, 40, 52, 0.5);
+  --elev-hi: 0 2px 6px rgba(16, 40, 52, 0.09), 0 18px 40px -26px rgba(16, 40, 52, 0.55);
+  /* phosphor bloom behind the large readouts; off in light mode. */
+  --glow: transparent;
+
   --font-data: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
 }
@@ -45,6 +58,11 @@
     --warn: #d3a047;
     --crit: #df6a5f;
     --dormant: #5e7482;
+
+    --hairline: rgba(255, 255, 255, 0.055);
+    --elev: 0 1px 0 rgba(0, 0, 0, 0.4), 0 14px 34px -26px #000;
+    --elev-hi: 0 1px 0 rgba(0, 0, 0, 0.5), 0 22px 48px -26px #000;
+    --glow: color-mix(in srgb, var(--brand) 30%, transparent);
   }
 }
 
@@ -89,6 +107,20 @@
   --border: var(--rule);
   --input: var(--rule-strong);
   --ring: var(--brand);
+  /*
+   * Sidebar tokens were missed on the first pass, and nothing used them until
+   * Streamdown's table chrome did — `bg-sidebar` on a wrapper is how a
+   * near-white card appeared around a table on a dark panel. Mapping the whole
+   * vocabulary, not the part currently in use, is the point of a bridge.
+   */
+  --sidebar: var(--surface-2);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: var(--ground);
+  --sidebar-accent: var(--surface-2);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--rule);
+  --sidebar-ring: var(--brand);
   /* the instrument panel is square-cornered; shadcn defaults to 10px */
   --radius: 2px;
 }
@@ -129,8 +161,24 @@ body {
   font-family: var(--font-data); font-size: 13px; font-weight: 600;
   letter-spacing: 0.03em; display: flex; align-items: center; gap: 9px;
 }
-.pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--dormant); flex: none; }
-.pulse.live { background: var(--ok); }
+.top::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--brand), transparent);
+  opacity: .5;
+}
+.pulse {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--dormant); flex: none;
+}
+.pulse.live {
+  background: var(--ok);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent);
+  animation: halo 2.4s ease-out infinite;
+}
+@keyframes halo {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent); }
+  70%  { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
 .brand-sub { color: var(--ink-3); font-weight: 400; letter-spacing: 0.1em; font-size: 10px; }
 
 .btn {
@@ -157,17 +205,41 @@ body {
 .sec-head .meta { margin-left: auto; }
 
 /* readouts */
+/*
+ * One rule for every panel: hairline on top, shadow underneath. Applied via a
+ * shared selector rather than repeated so the depth stays consistent when a
+ * new panel is added — the flatness was partly just drift between blocks.
+ */
+.readouts, .cov, .feed, .charts, .body-form {
+  box-shadow: inset 0 1px 0 var(--hairline), var(--elev);
+}
+
 .readouts {
   display: grid; grid-template-columns: repeat(4, 1fr);
   border: 1px solid var(--rule); border-top: none; background: var(--surface);
 }
-.ro { padding: 16px 18px 18px; border-right: 1px solid var(--rule); }
+.ro {
+  padding: 16px 18px 18px; border-right: 1px solid var(--rule);
+  position: relative; transition: background .18s ease;
+}
 .ro:last-child { border-right: none; }
+/* A tick that lights up on hover — the panel responding to attention, which
+   is most of what "interactive" means on a page that is mostly readouts. */
+.ro::before {
+  content: ""; position: absolute; inset: -1px auto auto 0; height: 2px; width: 0;
+  background: var(--brand); transition: width .22s ease;
+}
+.ro:hover { background: var(--surface-2); }
+.ro:hover::before { width: 34px; }
 .ro-val {
   font-family: var(--font-data); font-variant-numeric: tabular-nums;
-  font-size: 30px; line-height: 1.05; letter-spacing: -0.02em; margin: 8px 0 4px;
+  font-size: 33px; line-height: 1.05; letter-spacing: -0.03em; margin: 9px 0 5px;
+  text-shadow: 0 0 26px var(--glow);
 }
-.ro-val small { font-size: 15px; color: var(--ink-3); letter-spacing: 0; }
+.ro-val small, .ro-val .unit {
+  font-size: 14px; color: var(--ink-3); letter-spacing: 0.02em;
+  text-shadow: none; margin-left: 2px;
+}
 .ro-note { font-size: 12px; color: var(--ink-2); font-family: var(--font-data); }
 .ro.is-void .ro-val { color: var(--dormant); }
 .ro.is-void {
@@ -211,7 +283,22 @@ body {
 
 /* feed */
 .feed { border: 1px solid var(--rule); border-top: none; background: var(--surface); }
-.entry { display: grid; grid-template-columns: 108px 1fr; }
+/* A severity stripe, so what needs attention reads before any of the words
+   do. Withheld entries get a dashed one — present, but visibly not an alert. */
+.entry {
+  display: grid; grid-template-columns: 108px 1fr;
+  position: relative; transition: background .18s ease;
+}
+.entry::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  background: var(--brand);
+}
+.entry.quiet::before {
+  background: repeating-linear-gradient(
+    180deg, var(--dormant) 0 3px, transparent 3px 7px
+  );
+}
+.entry:hover { background: color-mix(in srgb, var(--surface-2) 55%, transparent); }
 .entry + .entry { border-top: 1px solid var(--rule); }
 .entry-when {
   padding: 18px 14px 18px 18px; border-right: 1px solid var(--rule);
@@ -248,13 +335,26 @@ body {
   border: 1px solid var(--rule); border-top: none; background: var(--surface);
   display: grid; grid-template-columns: 1fr 1fr;
 }
-.chart { padding: 16px 18px 18px; border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.chart {
+  padding: 16px 18px 18px; border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  position: relative; transition: background .18s ease;
+}
+.chart:hover { background: var(--surface-2); }
+/* The charts have been clickable since Day 6 and never said so. */
+.chart::after {
+  content: "ask ↗"; position: absolute; top: 14px; right: 16px;
+  font-family: var(--font-data); font-size: 10px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--brand);
+  opacity: 0; transition: opacity .18s ease;
+}
+.chart:hover::after { opacity: 1; }
 .chart:nth-child(2n) { border-right: none; }
 .chart:nth-last-child(-n + 2) { border-bottom: none; }
 .chart-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
 .chart-val { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: 19px; margin-left: auto; }
 .chart-note { font-family: var(--font-data); font-size: 11px; color: var(--ink-3); margin-top: 8px; }
-.chart svg { width: 100%; height: 74px; display: block; margin-top: 10px; overflow: visible; }
+.chart svg { width: 100%; height: auto; display: block; overflow: visible; }
 .empty-chart {
   height: 74px; margin-top: 10px; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 8px;
@@ -411,3 +511,385 @@ body {
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: .01ms !important; }
 }
+
+/* ---- Day 7: body, intake, meal cards ---- */
+
+.body-form {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px; margin-bottom: 14px;
+  border: 1px solid var(--rule); background: var(--surface);
+}
+.body-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.body-row .ask-input { width: auto; min-width: 96px; }
+.body-row .lbl { min-width: 58px; }
+.phase-now {
+  font-family: var(--font-data); font-size: 12px; color: var(--ink-2);
+  padding: 3px 8px; border: 1px dashed var(--rule-strong);
+}
+
+.meal-list {
+  list-style: none; margin: 10px 0 0; padding: 0;
+  display: flex; flex-direction: column; gap: 6px;
+  font-family: var(--font-data); font-size: 12px; color: var(--ink-2);
+}
+.meal-list li { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.meal-list-sep { color: var(--ink-3); }
+
+/*
+ * The confirmation card. Styled as a form rather than as a message, because
+ * that is what it is — the one place in the chat where the athlete's input
+ * changes what gets written, and it should not look like prose from the model.
+ */
+.meal {
+  border: 1px solid var(--rule-strong); background: var(--surface);
+  padding: 11px 12px; display: flex; flex-direction: column; gap: 9px;
+}
+.meal.is-saved { border-color: color-mix(in srgb, var(--ok) 45%, var(--rule)); }
+.meal-head { display: flex; align-items: center; gap: 8px; }
+.meal-items { width: 100%; border-collapse: collapse; }
+.meal-items td { padding: 4px 0; vertical-align: middle; }
+.meal-items tr + tr td { border-top: 1px solid var(--rule); }
+.meal-name { font-size: 13.5px; color: var(--ink); }
+.meal-sub {
+  font-family: var(--font-data); font-size: 10.5px; color: var(--ink-3);
+  margin-top: 1px;
+}
+.meal-grams { text-align: right; white-space: nowrap; }
+.meal-grams .ask-input { width: 72px; padding: 4px 6px; text-align: right; }
+.meal-unit {
+  font-family: var(--font-data); font-size: 11px; color: var(--ink-3);
+  margin-left: 4px;
+}
+.meal-totals {
+  font-size: 13px; color: var(--ink); padding-top: 7px;
+  border-top: 1px solid var(--rule-strong);
+}
+.meal-totals b { font-weight: 600; }
+.meal-prov { font-family: var(--font-data); font-size: 10.5px; color: var(--ink-3); }
+.meal-err {
+  font-family: var(--font-data); font-size: 11px; color: var(--crit);
+  border-left: 2px solid var(--crit); padding-left: 8px;
+}
+.meal-actions { display: flex; gap: 8px; }
+.hint-err { color: var(--crit); }
+
+/* attached photos, above the composer */
+.attachments {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 8px 8px 0;
+}
+.attachment {
+  display: flex; align-items: center; gap: 7px;
+  padding: 4px 6px 4px 4px;
+  border: 1px solid var(--rule-strong); background: var(--surface-2);
+  font-family: var(--font-data); font-size: 11px; color: var(--ink-2);
+  max-width: 100%;
+}
+.attachment-thumb {
+  width: 30px; height: 30px; flex: 0 0 auto;
+  background-size: cover; background-position: center;
+  background-color: var(--ground); border: 1px solid var(--rule);
+}
+.attachment-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px;
+}
+.attachment-x {
+  border: 0; background: none; color: var(--ink-3); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 0 2px;
+}
+.attachment-x:hover { color: var(--crit); }
+
+/* a photo the athlete sent, inside their own message */
+.msg-photo {
+  display: block;
+  width: 100%;
+  max-width: 260px;
+  aspect-ratio: 4 / 3;
+  background-size: cover;
+  background-position: center;
+  background-color: var(--ground);
+  border: 1px solid var(--rule-strong);
+}
+
+/* ---- motion ----
+ * Two effects only, both tied to meaning: sections settle in reading order on
+ * load, and a line chart draws itself left to right, which is the direction
+ * time runs in. Everything else stays still — a dashboard that fidgets is
+ * harder to read, not livelier.
+ */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(7px); }
+  to   { opacity: 1; transform: none; }
+}
+.sec { animation: rise .45s cubic-bezier(.22, .8, .3, 1) both; }
+.sec:nth-of-type(2) { animation-delay: .05s; }
+.sec:nth-of-type(3) { animation-delay: .1s; }
+.sec:nth-of-type(4) { animation-delay: .15s; }
+.sec:nth-of-type(5) { animation-delay: .2s; }
+
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.chart svg .draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: draw 1.1s cubic-bezier(.4, 0, .2, 1) .15s forwards;
+}
+
+/* ---- chat: what the model is doing ---- */
+.thinking {
+  display: flex; align-items: center; gap: 9px;
+  font-family: var(--font-data); font-size: 11.5px; color: var(--ink-3);
+  letter-spacing: .04em;
+}
+.thinking-dots { display: inline-flex; gap: 3px; }
+.thinking-dots i {
+  width: 4px; height: 4px; background: var(--brand); border-radius: 50%;
+  animation: blip 1.1s ease-in-out infinite;
+}
+.thinking-dots i:nth-child(2) { animation-delay: .15s; }
+.thinking-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes blip {
+  0%, 80%, 100% { opacity: .25; transform: translateY(0); }
+  40%           { opacity: 1;   transform: translateY(-3px); }
+}
+/* The label itself breathes, so a slow query still looks alive. */
+.thinking-label {
+  background: linear-gradient(
+    90deg, var(--ink-3) 0%, var(--ink) 45%, var(--ink-3) 90%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: sweep 2.1s linear infinite;
+}
+@keyframes sweep {
+  from { background-position: 120% 0; }
+  to   { background-position: -60% 0; }
+}
+
+/* A caret on the text still arriving. */
+.streaming::after {
+  content: ""; display: inline-block; width: 2px; height: 1em;
+  background: var(--brand); margin-left: 2px; vertical-align: -0.14em;
+  animation: caret 1s steps(2, start) infinite;
+}
+@keyframes caret { 50% { opacity: 0; } }
+
+/* A tool call that is still running should look like it. */
+.sheet .tool-running {
+  border-color: color-mix(in srgb, var(--brand) 50%, var(--rule));
+  position: relative;
+  overflow: hidden;
+}
+.sheet .tool-running::after {
+  content: ""; position: absolute; left: 0; top: 0; height: 2px; width: 34%;
+  background: linear-gradient(90deg, transparent, var(--brand), transparent);
+  animation: track 1.4s ease-in-out infinite;
+}
+@keyframes track {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(340%); }
+}
+
+.suggestion { transition: border-color .15s, color .15s, transform .15s; }
+.suggestion:hover { transform: translateY(-1px); }
+.btn { transition: border-color .15s, color .15s, background .15s; }
+.btn:hover { background: var(--surface-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sec, .chart svg .draw, .thinking-dots i, .thinking-label,
+  .streaming::after, .pulse.live, .tool-running::after {
+    animation: none;
+  }
+  .chart svg .draw { stroke-dasharray: none; stroke-dashoffset: 0; }
+  .thinking-label { color: var(--ink-2); background: none; -webkit-text-fill-color: currentColor; }
+  .suggestion:hover { transform: none; }
+}
+
+/* legend keys used in chart captions */
+.key {
+  display: inline-flex; align-items: center; gap: 4px; margin-right: 9px;
+  color: var(--ink-2);
+}
+.key::before {
+  content: ""; width: 8px; height: 8px; background: var(--dormant);
+}
+.key-brand::before { background: var(--brand); }
+.key-ok::before { background: var(--ok); }
+
+/* the calendar wants the full width of the grid */
+.chart-wide { grid-column: 1 / -1; }
+
+
+/* ------------------------------------------------------------------
+ * Mobile.
+ *
+ * This is where the dashboard is mostly read, so the phone layout is not a
+ * fallback — it is the primary one, and the desktop grid is what widens out
+ * of it. Three structural changes carry most of the difference: readouts drop
+ * to two columns and then one, charts stop being side by side (a 300-unit
+ * viewBox in a half-width column is unreadable), and the feed's date gutter
+ * moves above its entry rather than eating a third of the line length.
+ * ------------------------------------------------------------------ */
+@media (max-width: 760px) {
+  body { font-size: 14.5px; }
+  .wrap { padding: 0 14px 72px; }
+  .top-inner { padding: 10px 14px; gap: 10px; }
+  .brand-sub { display: none; }
+
+  .sec { margin-top: 26px; }
+  .sec-head { flex-wrap: wrap; gap: 6px 12px; }
+  .sec-head .meta { margin-left: 0; flex-basis: 100%; }
+
+  .readouts { grid-template-columns: repeat(2, 1fr); }
+  .ro { padding: 13px 14px 15px; }
+  /* Borders follow the two-column grid, or they draw lines to nowhere. */
+  .ro:nth-child(2n) { border-right: none; }
+  .ro:nth-child(n + 3) { border-top: 1px solid var(--rule); }
+  .ro-val { font-size: 27px; }
+
+  .charts { grid-template-columns: 1fr; }
+  .chart { border-right: none; padding: 14px 14px 16px; }
+  .chart:last-child { border-bottom: none; }
+  /* Hover is not a thing here, so the affordance has to be permanent. */
+  .chart::after { opacity: .75; font-size: 9px; top: 12px; right: 13px; }
+
+  .entry { grid-template-columns: 1fr; }
+  .entry-when {
+    border-right: none; border-bottom: 1px solid var(--rule);
+    padding: 12px 14px 10px 16px;
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  .entry-when b { display: inline; }
+  .entry-body { padding: 13px 14px 15px 16px; }
+  .entry-msg { font-size: 15px; }
+
+  .rule-row { grid-template-columns: 8px 1fr; padding: 9px 14px; }
+  .rule-why { grid-column: 2; text-align: left; }
+  .cov-bar { padding: 11px 14px; }
+
+  .body-form { padding: 12px; }
+  .body-row .ask-input { flex: 1 1 110px; min-width: 0; }
+  .body-row .lbl { min-width: 0; }
+
+  /* Full-bleed sheet: 40px of dashboard peeking through is not useful, and
+     the composer needs every pixel of width it can get. */
+  .sheet { width: 100vw; }
+  .meal-grams .ask-input { width: 64px; }
+}
+
+@media (max-width: 420px) {
+  .readouts { grid-template-columns: 1fr; }
+  .ro { border-right: none; }
+  .ro:nth-child(n + 2) { border-top: 1px solid var(--rule); }
+  .ro-val { font-size: 25px; }
+}
+
+/* Touch targets. A 6px-tall button is fine with a mouse and a coin toss with
+   a thumb. */
+@media (pointer: coarse) {
+  .btn { padding: 9px 14px; }
+  .suggestion { padding: 8px 11px; }
+  .attachment-x { padding: 4px 8px; }
+  .cov-bar { padding: 14px 16px; }
+}
+
+/* ---- plot frame + tooltip ---- */
+.plot { position: relative; margin-top: 10px; }
+
+/*
+ * A real tooltip, not SVG <title>. Native titles wait a second, cannot be
+ * styled, and do not exist on touch — which is where this is mostly read.
+ * Positioned in percentages of the plot so it tracks the mark at any width.
+ */
+.tip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 9px));
+  pointer-events: none;
+  z-index: 3;
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 6px 8px;
+  min-width: 84px;
+  background: var(--surface-2);
+  border: 1px solid var(--rule-strong);
+  box-shadow: var(--elev-hi);
+  font-family: var(--font-data);
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.tip b {
+  color: var(--ink); font-weight: 600; font-size: 10px;
+  letter-spacing: .06em; text-transform: uppercase;
+}
+
+/* charts drawn by the model, inside chat */
+.chat-chart {
+  margin: 2px 0; padding: 10px 11px 8px;
+  border: 1px solid var(--rule); background: var(--surface-2);
+}
+.chat-chart figcaption {
+  font-family: var(--font-data); font-size: 11px; color: var(--ink-2);
+  letter-spacing: .04em; line-height: 1.4;
+}
+.chat-chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chat-chart-axes {
+  display: flex; gap: 12px; margin-top: 6px;
+  font-family: var(--font-data); font-size: 10px; color: var(--ink-3);
+}
+
+/* ---- markdown from the model ----
+ * The model writes tables and lists; they were being poured into a <span> as
+ * literal text. These style what the renderer actually emits.
+ */
+.md > * { margin: 0 0 8px; }
+.md > *:last-child { margin-bottom: 0; }
+.md p { line-height: 1.55; }
+.md strong { color: var(--ink); font-weight: 600; }
+.md ul, .md ol { padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.md li { line-height: 1.5; }
+.md h1, .md h2, .md h3 {
+  font-family: var(--font-data); font-size: 11px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-3); margin: 12px 0 5px;
+}
+.md a { color: var(--brand); text-underline-offset: 2px; }
+.md hr { border: 0; border-top: 1px solid var(--rule); margin: 10px 0; }
+.md blockquote {
+  margin: 0; padding-left: 10px; border-left: 2px solid var(--rule-strong);
+  color: var(--ink-2);
+}
+/*
+ * Tables. Streamdown already supplies a wrapper that scrolls horizontally, so
+ * these only restyle it into the instrument-panel language rather than adding
+ * a second scroll container.
+ */
+.md [data-streamdown="table-wrapper"] {
+  margin: 8px 0; padding: 0; gap: 0;
+  border: 1px solid var(--rule); background: var(--surface);
+  border-radius: 0;
+}
+.md [data-streamdown="table-wrapper"] > div {
+  border: 0; border-radius: 0; background: transparent;
+}
+.md [data-streamdown="table"] {
+  font-family: var(--font-data); font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.md [data-streamdown="table-header"] { background: var(--surface-2); }
+.md th, .md td {
+  padding: 5px 10px; text-align: left; white-space: nowrap;
+  border-bottom: 1px solid var(--rule);
+}
+.md th {
+  color: var(--ink-3); font-weight: 500; letter-spacing: .06em;
+  text-transform: uppercase; font-size: 9.5px;
+}
+.md td { color: var(--ink-2); }
+.md tr:last-child td { border-bottom: none; }
+
+/* keep the caret at the end of streaming markdown, not on its own line */
+.md.streaming > *:last-child::after {
+  content: ""; display: inline-block; width: 2px; height: 1em;
+  background: var(--brand); margin-left: 3px; vertical-align: -0.14em;
+  animation: caret 1s steps(2, start) infinite;
+}
+.md.streaming::after { content: none; }
