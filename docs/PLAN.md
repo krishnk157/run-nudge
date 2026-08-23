@@ -1,14 +1,14 @@
-# RunNudge — Proactive Training Insights System
+# RunNudge: Proactive Training Insights System
 
-**Project plan (v2)** · *revised in place after Days 1–2 — see the ▸ notes*
+**Project plan (v2)** · *revised in place after Days 1-2, see the ▸ notes*
 
 > **How to read this document.** Original wording is preserved; revisions are marked
 > `▸ Revised after Day N` and say what was assumed, what the data showed, and what changed.
-> The assumptions that turned out wrong are as much a part of the story as the ones that held —
-> a plan that looks correct in hindsight usually means nobody checked it against reality.
+> The assumptions that turned out wrong are as much a part of the story as the ones that held.
+> A plan that looks correct in hindsight usually means nobody checked it against reality.
 > Per-day detail lives in [DAY-1.md](DAY-1.md) and [DAY-2.md](DAY-2.md).
 
-A proactive training-insights system over your own Strava + Garmin running data. The core feature: the system reacts to your runs as they happen — ingesting, analyzing, and notifying you with meaningful insights — something a chat session with Strava/Garmin MCPs connected to Claude structurally cannot do, because a chat session only acts when you open it and ask.
+A proactive training-insights system over your own Strava + Garmin running data. The core feature: the system reacts to your runs as they happen, ingesting, analyzing, and notifying you with meaningful insights, something a chat session with Strava/Garmin MCPs connected to Claude structurally cannot do, because a chat session only acts when you open it and ask.
 
 Secondary layer: a chat interface with tool-calling for on-demand questions, plus a dashboard.
 
@@ -18,19 +18,19 @@ Secondary layer: a chat interface with tool-calling for on-demand questions, plu
 
 Claude with Strava/Garmin MCPs answers questions when asked. This project inverts that: **the system initiates.** You finish a run, and within minutes you get a message like:
 
-> "Weekly load is up 38% vs your 4-week average — third week of increases. Your last two easy runs also ran 10 bpm hotter than usual. Consider a down week."
+> "Weekly load is up 38% vs your 4-week average, third week of increases. Your last two easy runs also ran 10 bpm hotter than usual. Consider a down week."
 
-No chat session can do this — it requires event-driven ingestion, persistent history, derived-state computation (training load, trends), and an outbound notification channel. That's the honest answer to "couldn't you just use the MCP?": a chat can retrieve; it cannot watch, accumulate, and initiate.
+No chat session can do this: it requires event-driven ingestion, persistent history, derived-state computation (training load, trends), and an outbound notification channel. That's the honest answer to "couldn't you just use the MCP?": a chat can retrieve; it cannot watch, accumulate, and initiate.
 
 ## 1a. Training context and goals
 
 > **▸ Added after Day 2 (2026-08-09).** The plan was written as a *running* insights system.
 > The actual training it has to serve is mostly not running, which changes what the analysis
-> engine computes — though not the architecture.
+> engine computes, though not the architecture.
 
 **The athlete's training and goals, as stated:**
 
-- 4–5 gym sessions per week (strength), tracked in Garmin's free strength-training mode
+- 4-5 gym sessions per week (strength), tracked in Garmin's free strength-training mode
 - Occasional weekend 5k runs
 - **Goals:** improve VO2max and running pace
 - Willing to log weight and calories
@@ -40,21 +40,21 @@ No chat session can do this — it requires event-driven ingestion, persistent h
 | Fact | Consequence |
 |---|---|
 | Gym: **12.0 h** in 3 weeks vs running **9.3 h across 6 months** | Mileage-based load ignores most of the training |
-| Running ≈ **1 × 5k per week** | ACWR over running alone is dominated by single sessions — this is how Garmin produced 4.8 VERY_HIGH from one 10k |
+| Running ≈ **1 × 5k per week** | ACWR over running alone is dominated by single sessions; this is how Garmin produced 4.8 VERY_HIGH from one 10k |
 | VO2max **40.3 → 38.1** (May → Jul) | Trending *against* the stated goal; nothing in the original plan would have surfaced it |
-| Runs average **183 bpm at ~7:20/km** | High cardiac cost for the pace — the quantity that maps to the goal is aerobic efficiency, not raw pace |
+| Runs average **183 bpm at ~7:20/km** | High cardiac cost for the pace; the quantity that maps to the goal is aerobic efficiency, not raw pace |
 
 **Decisions taken (2026-08-09):**
 
 1. **The system is modality-agnostic**, not running-specific. Load is computed across all
    activity types from heart rate / effort, not from distance. Running becomes one input.
-2. **Body and nutrition data are logged in this app itself**, writing straight to Postgres —
-   no dependency on another product's sync path. Height is captured once; weight is logged
+2. **Body and nutrition data are logged in this app itself**, writing straight to Postgres,
+   with no dependency on another product's sync path. Height is captured once; weight is logged
    periodically; **meals are logged conversationally, by photo or text**.
 3. **Progress photos are out of scope; food photos are in.** The distinction is whether the
    model is asked something it can actually do. Judging body composition from a physique photo
    is unreliable and would claim a precision the method lacks. Identifying "two rotis, dal,
-   curd" from a plate is ordinary recognition, and — critically — its output is *checked by
+   curd" from a plate is ordinary recognition, and, critically, its output is *checked by
    the user before it is saved*.
 4. **No calorie target, and no dietary advice.** The system logs intake and shows it beside the
    weight trend. It does not compute a goal number, prescribe a deficit, or comment on what was
@@ -66,7 +66,7 @@ No chat session can do this — it requires event-driven ingestion, persistent h
    never overwritten.
 
 > **▸ Why phases are the same problem as intermittent wear.**
-> A bodyweight trend spanning a bulk and a cut is meaningless as a single slope — it averages
+> A bodyweight trend spanning a bulk and a cut is meaningless as a single slope: it averages
 > two opposite intentions into a number describing neither. That is precisely the resting-HR
 > confound again: **a series is only interpretable within one regime.** So weight is read
 > against the phase in force at the time, and phase boundaries are drawn on the chart rather
@@ -77,10 +77,10 @@ No chat session can do this — it requires event-driven ingestion, persistent h
 > mentioning. The phase supplies the interpretation, so the system reports rather than
 > prescribes.
 >
-> **Protein is phase-independent**, so it is a first-class tracked metric with its own readout
-> — the one dietary quantity constant across every phase.
+> **Protein is phase-independent**, so it is a first-class tracked metric with its own readout,
+> the one dietary quantity constant across every phase.
 
-> **On the name.** "RunNudge" is now slightly inaccurate — it's a training system, not a
+> **On the name.** "RunNudge" is now slightly inaccurate: it's a training system, not a
 > running one. Cosmetic, and per §3a the rule here is that descriptions must be honest, so the
 > README should say "training" even while the repo keeps its name.
 
@@ -90,44 +90,44 @@ No chat session can do this — it requires event-driven ingestion, persistent h
 
 - New run logged on Strava → webhook fires → system ingests, computes updated trends/load, and decides (via LLM) whether something is worth telling you
 - Insight notifications: load spikes, pace/HR anomalies, streaks and milestones, week-over-week trend shifts, recovery flags (Garmin sleep/HRV context)
-- Weekly summary message regardless of anomalies — a short LLM-written digest of the week's training
+- Weekly summary message regardless of anomalies, a short LLM-written digest of the week's training
 
-> **▸ Revised after Day 2 — insights are capability-gated.**
+> **▸ Revised after Day 2, insights are capability-gated.**
 > This list assumed every insight type always has the data it needs. Measured over 85 days:
 > sleep and HRV exist on 13% of them, all inside one four-week window, and Garmin's
 > `hrv_status` is `NONE` throughout because the baseline was never established.
-> Wearable use here is intermittent *by nature* — there will be tracking phases and
+> Wearable use here is intermittent *by nature*: there will be tracking phases and
 > non-tracking phases indefinitely.
 >
 > So each insight type carries a **data-sufficiency precondition**, and the engine runs only
 > the rules currently eligible. Gated rather than cut, deliberately: a gated rule self-enables
-> when wear resumes, with no code change. A third state is added alongside notify / stay-quiet —
-> **"insufficient data"** — because silence that means *we don't know* must never be
+> when wear resumes, with no code change. A third state is added alongside notify / stay-quiet,
+> **"insufficient data"**, because silence that means *we don't know* must never be
 > indistinguishable from silence that means *you're fine*. See [DAY-2.md](DAY-2.md) §7, §11.
 
-> **▸ Revised after §1a — insight types, restated for the actual training mix.**
+> **▸ Revised after §1a, insight types, restated for the actual training mix.**
 > "load spikes, pace/HR anomalies" assumed a runner. The set that serves the stated goals:
 >
-> - **Cross-modal load** — weekly training load across gym *and* runs, from HR/effort rather
+> - **Cross-modal load**, weekly training load across gym *and* runs, from HR/effort rather
 >   than distance. At ~5 km/week, mileage is not a load measure.
-> - **Aerobic efficiency trend** — pace at a given heart rate over months. This is the
+> - **Aerobic efficiency trend**, pace at a given heart rate over months. This is the
 >   quantity that actually tracks "improve VO2max and pace"; raw pace confounds effort with
 >   fitness, and Garmin's VO2max estimate updates only after qualifying runs (5 values in
 >   3 months).
-> - **Strength progression** — volume (sets × reps × weight) and per-lift bests, from Garmin's
+> - **Strength progression**, volume (sets × reps × weight) and per-lift bests, from Garmin's
 >   exercise-set data. Strava records only a duration for these sessions.
-> - **Bodyweight trend** — from the app's own log, on a monthly rather than per-session cadence.
-> - **Consistency and streaks** — already in the list, and the most actionable signal for
+> - **Bodyweight trend**, from the app's own log, on a monthly rather than per-session cadence.
+> - **Consistency and streaks**, already in the list, and the most actionable signal for
 >   someone whose gym block stopped on 5 June.
 >
 > **Timescale note:** these goals resolve over *months*, but the proactive pipeline reacts per
 > activity. Per-run reactions cannot report a VO2max trend without becoming noise. So the
-> monthly cadence is a first-class reporting tier alongside the weekly digest — not an
+> monthly cadence is a first-class reporting tier alongside the weekly digest, not an
 > afterthought.
 
 **On-demand (secondary):**
 
-- Chat with tool-calling: `query_metrics` (SQL), `render_chart` — Claude orchestrates which tools a question needs
+- Chat with tool-calling: `query_metrics` (SQL), `render_chart`, Claude orchestrates which tools a question needs
 - Dashboard: metric cards, trend charts, sync status
 
 ## 3. Key Architecture Decisions
@@ -136,36 +136,36 @@ No chat session can do this — it requires event-driven ingestion, persistent h
 | ------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Core differentiator | Proactive event-driven analysis + notifications                                                    | The one capability chat-plus-MCP structurally lacks; makes the project's existence defensible in one sentence                                                                                                                              |
 | RAG / vector store  | Dropped entirely                                                                                   | No text corpus (no run notes), and RAG is already demonstrated on the portfolio site. No Voyage, no pgvector.                                                                                                                              |
-| Ingestion           | Direct Strava REST API (OAuth) + webhooks                                                          | Ingestion is deterministic system-to-system fetching with no LLM in the loop — MCP's value (LLM deciding when to use a tool) doesn't apply here. MCP servers are built to be called by an LLM in a chat client, not by a webhook receiver. |
+| Ingestion           | Direct Strava REST API (OAuth) + webhooks                                                          | Ingestion is deterministic system-to-system fetching with no LLM in the loop, MCP's value (LLM deciding when to use a tool) doesn't apply here. MCP servers are built to be called by an LLM in a chat client, not by a webhook receiver. |
 | Garmin data         | Unofficial API (community library), daily metrics only                                             | Sleep, HRV, VO2max, training load enable recovery-aware insights. Flaky; fallback = Strava-only v1.                                                                                                                                        |
 | LLM's role          | Two jobs: (1) decide if an event warrants a notification + write it; (2) orchestrate tools in chat | Deterministic code computes the numbers (load, trends, anomaly checks); the LLM judges significance and communicates. Numbers are never left to the LLM to calculate.                                                                      |
 | Storage             | Postgres (Neon)                                                                                    | Persistent history + derived state is what enables proactivity; plain relational, no vector extension needed                                                                                                                               |
 | Generation          | Claude (Anthropic API) via Vercel AI SDK                                                           | Existing credits; strong tool-calling; distinctive stack                                                                                                                                                                                   |
 | Notifications       | Email first (simplest), Telegram bot as upgrade                                                    | WhatsApp API has approval friction; Telegram is free and instant; email works day one                                                                                                                                                      |
 
-> **▸ Revised after Day 2 — two decisions restated, one added.**
+> **▸ Revised after Day 2, two decisions restated, one added.**
 >
 > | Decision | Choice | Why |
 > | --- | --- | --- |
-> | Garmin data *(supersedes the row above)* | Python sidecar around `garminconnect`, isolated behind Postgres | The Node library was rejected on **data coverage, not auth**: it exposes sleep/HR/steps and no HRV, VO2max or training load — one of the four metric families this row depends on. Python's exposes all of them. |
+> | Garmin data *(supersedes the row above)* | Python sidecar around `garminconnect`, isolated behind Postgres | The Node library was rejected on **data coverage, not auth**: it exposes sleep/HR/steps and no HRV, VO2max or training load, one of the four metric families this row depends on. Python's exposes all of them. |
 > | Polyglot boundary *(new)* | Sidecar writes `daily_metrics`; the app never imports it, it never imports the app | A second language is justified only when isolated behind a durable interface and confined off the request path. The test: removing it must not require touching the app. Here it doesn't. |
 > | Dedup strategy *(new)* | Exact provenance from Strava's `external_id`, not heuristic matching | The watch auto-pushes to Strava, so one run yields one activity carrying `garmin_ping_<garminActivityId>`. There are no duplicates to reconcile. |
 >
 > Also worth recording: `activities.raw` is a **lossless** archive (`z.looseObject`, not `z.object`).
 > A validating parser between a source and its archive silently narrows the archive to whatever
-> the validator already knows about — which defeats the entire purpose of keeping raw payloads.
+> the validator already knows about, which defeats the entire purpose of keeping raw payloads.
 > See [DAY-2.md](DAY-2.md) §2, §4.
 
-> **▸ Added after §1a — three more decisions.**
+> **▸ Added after §1a, three more decisions.**
 >
 > | Decision | Choice | Why |
 > | --- | --- | --- |
 > | Load metric | Heart-rate / effort based, cross-modal | Distance measures one modality out of several. 12 h of gym vs 9.3 h of running makes a mileage-based load actively misleading, not merely incomplete. |
 > | Body metrics | Manual entry in this app's own UI → Postgres | Garmin can store weigh-ins and nutrition, but only if food is logged in a third app that syncs. Owning the entry path removes a dependency whose failure mode is silent gaps. |
-> | Progress photos | Out of scope | An LLM judging body composition from photos is unreliable. Shipping it would mean claiming a precision the method doesn't have — the same error as reporting confounded resting HR as a measurement. |
-> | Meal logging | Conversational — photo or text, in the chat layer | The lowest-friction entry path that exists, and friction is the only thing that determines whether food logging survives past week two. |
+> | Progress photos | Out of scope | An LLM judging body composition from photos is unreliable. Shipping it would mean claiming a precision the method doesn't have, the same error as reporting confounded resting HR as a measurement. |
+> | Meal logging | Conversational, photo or text, in the chat layer | The lowest-friction entry path that exists, and friction is the only thing that determines whether food logging survives past week two. |
 
-> **▸ Added after §1a — the LLM's role, restated precisely.**
+> **▸ Added after §1a, the LLM's role, restated precisely.**
 > §3 above says *"numbers are never left to the LLM to calculate."* Meal logging looks like a
 > violation. It isn't, once the two halves are separated:
 >
@@ -176,7 +176,7 @@ No chat session can do this — it requires event-driven ingestion, persistent h
 > | *Daily and weekly totals* | **SQL** | Arithmetic stays in the database. |
 >
 > So the model emits `{ item: "roti", count: 2, grams_each: 40 }` and never multiplies anything.
-> The original principle is not weakened — it is stated more precisely: **the LLM may perceive
+> The original principle is not weakened, it is stated more precisely: **the LLM may perceive
 > and judge; it may not compute.**
 >
 > **The `foods` table learns.** The first time a food appears, the model estimates its per-100g
@@ -186,7 +186,7 @@ No chat session can do this — it requires event-driven ingestion, persistent h
 > Indian food, which is most of what will be logged here.
 >
 > **Two honesty constraints.** Portion estimates from photos carry large error bars, so every
-> quantity is **editable before saving** and the UI leads with the **weekly average** — the trend
+> quantity is **editable before saving** and the UI leads with the **weekly average**, the trend
 > survives estimation noise, a single day does not. And an unconfirmed estimate is never counted.
 
 ## 3a. Naming and terminology (deliberate)
@@ -198,9 +198,9 @@ Accurate framings to use in the README and on a resume:
 - "Proactive training insights system" / "event-driven training analysis"
 - "LLM tool-calling and orchestration" (for the chat layer specifically)
 
-Avoid: "AI agent," "AI coach" — the latter is also the crowded genre this project deliberately differs from (see §1).
+Avoid: "AI agent," "AI coach", the latter is also the crowded genre this project deliberately differs from (see §1).
 
-If the LLM later gets genuine multi-step autonomy in the proactive path (deciding what to investigate, calling `query_metrics` repeatedly, then concluding), the "agent" label becomes honest — until then, it isn't.
+If the LLM later gets genuine multi-step autonomy in the proactive path (deciding what to investigate, calling `query_metrics` repeatedly, then concluding), the "agent" label becomes honest, until then, it isn't.
 
 ## 4. Scope
 
@@ -210,36 +210,36 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 - Garmin daily metrics into `daily_metrics` table; ~~dedup/reconciliation for dual-logged activities~~ ✅ *Day 2*
 - Derived-state computation (deterministic code, not LLM): ~~weekly mileage~~ cross-modal load, acute:chronic load ratio, ~~rolling pace/HR baselines~~ regime-aware baselines, anomaly checks ✅ *Day 3*
 
-> **▸ Revised after Day 2 — dedup struck; data-quality work added.**
+> **▸ Revised after Day 2, dedup struck; data-quality work added.**
 > Dual-logged activities **do not occur** in this data, so there is nothing to reconcile
 > (see the §3 addendum). Replaced by provenance columns and, in its place, work the plan
 > didn't anticipate: **regime-aware baselines**. Resting HR averages 58.8 bpm on nights the
-> watch was worn and 68.5 when it wasn't — present, numeric, and wrong in a way no null check
+> watch was worn and 68.5 when it wasn't, present, numeric, and wrong in a way no null check
 > catches. A baseline spanning both regimes would read a return to consistent wear as a
 > ~10 bpm fitness gain that is purely a measurement artifact.
 
-> **▸ Added after §1a — three items now in scope for v1.**
+> **▸ Added after §1a, three items now in scope for v1.**
 >
-> - **Strength session detail** — pull Garmin's per-set data (`get_activity_exercise_sets`)
+> - **Strength session detail**, pull Garmin's per-set data (`get_activity_exercise_sets`)
 >   into a `strength_sets` table. Strava stores only a duration for a gym session, so without
->   this, 4–5 of 5–6 weekly sessions are opaque to the analysis engine.
-> - **Body metrics** — `profile` (height, captured once), `body_log` (weight over time) and
+>   this, 4-5 of 5-6 weekly sessions are opaque to the analysis engine.
+> - **Body metrics**, `profile` (height, captured once), `body_log` (weight over time) and
 >   `goal_phases` (bulk / cut / maintain, with start dates), entered through the dashboard.
-> - **Conversational meal logging** — `foods`, `meals` and `meal_items` tables, plus a
+> - **Conversational meal logging**, `foods`, `meals` and `meal_items` tables, plus a
 >   multimodal path in the chat layer: photo or text → identified items → confirm → save.
 >   Together with weight, the only user-input write paths in the system; everything else is
 >   ingested.
-> - **Monthly trend reporting** — a longer cadence than the weekly digest, because VO2max,
+> - **Monthly trend reporting**, a longer cadence than the weekly digest, because VO2max,
 >   aerobic efficiency and bodyweight only become legible over months.
 >
 > **Explicitly out:** progress photos and any body-composition assessment from images; calorie
 > targets; anything resembling dietary advice.
 >
 > **Multimodal is back, for a better reason.** The stretch item "multimodal route-image queries"
-> is retired — it served no stated goal. Food photos replace it: the same capability, pointed at
+> is retired, it served no stated goal. Food photos replace it: the same capability, pointed at
 > something the user will actually do daily.
 >
-> **Scope honesty:** nutrition is nearer a second product than a feature — three tables, a
+> **Scope honesty:** nutrition is nearer a second product than a feature, three tables, a
 > vision pipeline, a confirmation flow. It gets **its own day (§5, Day 7)** rather than being
 > absorbed into Day 6, and deploy moves to Day 8. Approved 2026-08-09.
 - Webhook receiver → async pipeline: ingest → recompute → LLM significance judgment → notification ✅ *Day 4 (delivery is Day 5)*
@@ -257,36 +257,36 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 ### Out of scope
 
 - Multi-user product, coaching plans, medical advice, monetization
-- RAG / embeddings / vector search — deliberately
+- RAG / embeddings / vector search, deliberately
 
 ## 5. Day-Wise Plan
 
-### Day 1 — Ingestion foundation
+### Day 1, Ingestion foundation
 
 - Strava developer app + OAuth flow (authorize → callback → token exchange → refresh handling)
 - Neon Postgres; `activities` table (+ raw JSON column); normalization layer
 - Backfill script: full run history into DB
 - **Outcome:** entire Strava history in your own DB, tokens refreshing properly
 
-> **▸ Day 1 — done (2026-08-05).** 28 activities, 14 runs, 2026-01-24 → 2026-07-26.
+> **▸ Day 1, done (2026-08-05).** 28 activities, 14 runs, 2026-01-24 → 2026-07-26.
 > Idempotency verified on real data. Token refresh is **partially** verified: the mechanism
 > works end to end, but Strava returned the same token because only the stored expiry had been
 > tampered with, so the rotation branch remains unexercised. Two claims in that day's write-up
-> were later found wrong — see [DAY-1.md](DAY-1.md) §6, §11 and [DAY-2.md](DAY-2.md) §2.
+> were later found wrong, see [DAY-1.md](DAY-1.md) §6, §11 and [DAY-2.md](DAY-2.md) §2.
 
-### Day 2 — Garmin + dedup
+### Day 2, Garmin + dedup
 
 - Garmin unofficial API via community library; `daily_metrics` table (sleep, HRV, VO2max, training load)
 - Dedup: timestamp + distance matching; per-field source-of-truth (Garmin wins HR, Strava wins activity record)
 - **Outcome:** merged dataset; dual-logged run appears once
 - **Risk:** likeliest day to slip. If >1 day, ship Strava-only and continue.
 
-> **▸ Day 2 — done (2026-08-09), but not as designed.**
-> The day was flagged as likeliest to slip, and it did — **on neither of the risks it named.**
+> **▸ Day 2, done (2026-08-09), but not as designed.**
+> The day was flagged as likeliest to slip, and it did, **on neither of the risks it named.**
 > The unofficial API worked. What slipped were two unchecked assumptions:
 >
-> 1. **Dedup was unnecessary.** No dual-logging occurs. The planned timestamp+distance matcher —
->    tolerance windows, tie-breaking, GPS drift between sources — was replaced by one regex over
+> 1. **Dedup was unnecessary.** No dual-logging occurs. The planned timestamp+distance matcher
+>    (tolerance windows, tie-breaking, GPS drift between sources) was replaced by one regex over
 >    `external_id`. The stated outcome ("dual-logged run appears once") is unreachable because
 >    the condition never arises.
 > 2. **The recovery metrics are 13% covered.** 85 days synced; sleep and HRV on 11 of them,
@@ -294,17 +294,17 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 >
 > **Unplanned gain:** Garmin computes acute:chronic workload itself, retained on 72 days as a
 > *reference implementation* to validate Day 3's own computation against. It also independently
-> confirmed a Day 1 prediction: after the Mar–May layoff, the 5 July 10 km run scored
+> confirmed a Day 1 prediction: after the Mar-May layoff, the 5 July 10 km run scored
 > **ACWR 4.8 / VERY_HIGH** with chronic load collapsed to 131 and readiness at **1/100**.
 
-### Day 3 — Analysis engine (the brain, no LLM yet)
+### Day 3, Analysis engine (the brain, no LLM yet)
 
 - Deterministic computations: weekly mileage aggregates, acute:chronic workload ratio, rolling 30-day pace/HR baselines per run type, personal records
 - Anomaly rules: load jump thresholds, HR-above-baseline-at-same-pace, streak/milestone detection
 - Run it over your historical data; sanity-check outputs against what you know about your own training
-- **Outcome:** a `compute_insights(activity_id)` function returning structured findings (e.g., `{load_ratio: 1.38, hr_anomaly: true, ...}`) — correct on real history
+- **Outcome:** a `compute_insights(activity_id)` function returning structured findings (e.g., `{load_ratio: 1.38, hr_anomaly: true, ...}`), correct on real history
 
-> **▸ Revised after Day 2 — four additions before this day starts.**
+> **▸ Revised after Day 2, four additions before this day starts.**
 >
 > 1. **Rules declare their data requirements.** A rule is a computation *plus a precondition*
 >    (HR-anomaly needs ≥N runs with HR in the window; sleep-debt needs ≥N valid nights). The
@@ -313,26 +313,26 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > 2. **Baselines are regime-aware.** Filter resting HR to `valid_sleep = true`, or reset when
 >    the regime changes; warm up again after a gap rather than letting the first day back set
 >    the reference.
-> 3. **ACWR needs a layoff rule** — a chronic-load floor, or suppression until the chronic
+> 3. **ACWR needs a layoff rule**, a chronic-load floor, or suppression until the chronic
 >    window is populated. Garmin's 4.8 on 5 July is the concrete case to design against, not a
 >    hypothetical.
 > 4. **Validate our ACWR against `garmin_acwr`** on the 72 days holding both. This is a
->    cross-check, not ground truth — Garmin's exact formula is undocumented and unverified.
+>    cross-check, not ground truth, Garmin's exact formula is undocumented and unverified.
 >
 > Also carried forward: only **5 of 14 runs have heart-rate data**, so HR-based rules stay
 > gated for now regardless of Garmin wear.
 
-> **▸ Revised again after §1a — what Day 3 actually computes.**
+> **▸ Revised again after §1a, what Day 3 actually computes.**
 > "Weekly mileage aggregates" and "rolling pace/HR baselines per run type" describe a running
 > system. Replaced by:
 >
-> 1. **Cross-modal weekly load** from HR/effort across every activity type — the primary load
+> 1. **Cross-modal weekly load** from HR/effort across every activity type, the primary load
 >    series, with mileage demoted to a running-specific detail.
-> 2. **Aerobic efficiency** — pace at a reference heart rate per run, trended. The headline
+> 2. **Aerobic efficiency**, pace at a reference heart rate per run, trended. The headline
 >    metric for the stated goals, and computable on all 5 HR-bearing runs today.
 > 3. **Strength volume and per-lift bests** from `strength_sets`.
-> 4. **Consistency tracking** across modalities — sessions per week vs a trailing baseline.
->    The 5 June gym stop and the Mar–May running layoff are both in the historical data and
+> 4. **Consistency tracking** across modalities, sessions per week vs a trailing baseline.
+>    The 5 June gym stop and the Mar-May running layoff are both in the historical data and
 >    make good test cases.
 >
 > Note the sanity-check step matters more here than it did for running: cross-modal load
@@ -340,18 +340,18 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > That weighting is a judgment call, and Garmin's own acute load on the same days is the
 > reference to calibrate it against.
 
-> **▸ Day 3 — done (2026-08-12).** `computeInsights(activityId)` returns structured findings
+> **▸ Day 3, done (2026-08-12).** `computeInsights(activityId)` returns structured findings
 > from five capability-gated rules. Detail in [DAY-3.md](DAY-3.md).
 >
 > **Validated:** acute:chronic ratio against Garmin's own on 72 days, **r = 0.967**. We decline
 > on 51 of them because Garmin reports a ratio even when its own chronic load has collapsed to
-> zero — which is why the 5 Jul run reads *"first session in 28 days"* here rather than Garmin's
+> zero, which is why the 5 Jul run reads *"first session in 28 days"* here rather than Garmin's
 > **4.8 VERY_HIGH, readiness 1/100**. That contrast is the clearest single demonstration of what
 > the engine is for.
 >
 > **Load is heart-rate based, as §1a required.** Strava's `suffer_score` was the obvious
 > fallback for activities without HR and turned out to be present on exactly the 18 activities
-> that already have HR — zero added coverage. The fallback is instead calibrated from the
+> that already have HR, zero added coverage. The fallback is instead calibrated from the
 > athlete's own measured sessions per sport, and every load carries the method used so rules
 > never silently compare estimated against measured.
 >
@@ -362,83 +362,83 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 >
 > **Two additions the plan didn't ask for, both prompted by "how do we know these are valid?":**
 >
-> - **Threshold sensitivity sweep** (`npm run sensitivity`) — every threshold now lives in
+> - **Threshold sensitivity sweep** (`npm run sensitivity`), every threshold now lives in
 >   `AnalysisConfig` labelled METHOD (a fact about the metric) or PREFERENCE (how quiet you want
 >   the system), and is swept across both trigger paths. Verdict: **5 plateau, 5 cliff, 0 inert**.
->   `minChronicSessions = 8` is a genuine plateau across 7–10. The rest govern between 3 and 17
->   decisions each, so the sweep is largely reporting sample size — they are choices *made
+>   `minChronicSessions = 8` is a genuine plateau across 7-10. The rest govern between 3 and 17
+>   decisions each, so the sweep is largely reporting sample size, they are choices *made
 >   explicit*, not choices justified, and should be re-swept as data accumulates.
-> - **42 invariant tests** (`npm test`) — pinning the properties that must hold whatever the
+> - **42 invariant tests** (`npm test`), pinning the properties that must hold whatever the
 >   thresholds are, including all three ACWR guards. Verified by sabotage: each fixed bug was
 >   deliberately reintroduced to confirm the suite catches it. One test didn't, and was rewritten.
 >
 > **Deferred:** `strength_sets` ingestion. All 10 historical gym sessions return 404 for
-> exercise sets — they predate the switch to strength mode. Garmin retains set data, so this can
+> exercise sets, they predate the switch to strength mode. Garmin retains set data, so this can
 > backfill once sessions exist; the rule ships correctly dormant until then.
 
-### Day 4 — Event pipeline + LLM judgment
+### Day 4, Event pipeline + LLM judgment
 
 - Strava webhook subscription; receiver route with validation; async processing (fetch → normalize → ~~dedup~~ → recompute)
-- LLM significance layer: findings JSON → Claude decides notify-or-not and writes the message (system prompt tuned for "quiet unless it matters" — notification fatigue kills the product)
+- LLM significance layer: findings JSON → Claude decides notify-or-not and writes the message (system prompt tuned for "quiet unless it matters", notification fatigue kills the product)
 
-> **▸ Revised after Day 2.** The `dedup` step is struck — ingestion is a single idempotent
+> **▸ Revised after Day 2.** The `dedup` step is struck, ingestion is a single idempotent
 > upsert on Strava's activity id, which is what makes at-least-once webhook delivery safe.
 >
 > The significance prompt gets a second obligation beyond "quiet unless it matters": it must be
 > told **which rules were ineligible and why**, so it never phrases an absent signal as a
 > reassuring one. "Nothing unusual in your recovery data" is a false statement when there is no
-> recovery data — and it's the same error as the resting-HR confound, one layer up.
+> recovery data, and it's the same error as the resting-HR confound, one layer up.
 >
 > Note the webhook handler must **not** wait out a rate limit (the API client makes waiting
 > opt-in per caller for exactly this reason): Strava expects a fast response and retries, and a
 > serverless function that sleeps is billed until the platform kills it.
 
-> **▸ Day 4 — done (2026-08-17).** Simulated events produce correct decisions + drafted
+> **▸ Day 4, done (2026-08-17).** Simulated events produce correct decisions + drafted
 > messages end-to-end. Detail in [DAY-4.md](DAY-4.md).
 >
 > The judge (claude-opus-5, structured output) receives ineligible findings with their unlock
 > reasons and is forbidden from presenting an unevaluated rule as checked-and-fine. On the
-> 5 Jul comeback — where Garmin said 4.8 VERY_HIGH — it notified with *"first session in 28
+> 5 Jul comeback, where Garmin said 4.8 VERY_HIGH, it notified with *"first session in 28
 > days… the load check couldn't be evaluated at all"*, and its rationale shows it saw the
 > suppressed ratio and refused to quote it. Every failure mode (refusal, unparseable output,
 > notify-without-message) degrades to logged silence: for a notification system the safe
 > failure is saying nothing.
 >
 > **The judge found a Day 3 bug on its first batch**: its rationale flagged an eligibility
-> payload showing have=6 need=3 on a rule that had declined — the payload always reported the
+> payload showing have=6 need=3 on a rule that had declined, the payload always reported the
 > recent-nights dimension even when the baseline was what failed. The candid-rationale channel
 > was built as a tuning trail and turned out to be a second reviewer.
 >
 > **Still unverified:** a real webhook from Strava (no public URL until Day 8) and after()
 > semantics on Vercel in production. Severity is mildly nondeterministic across identical
-> inputs (notify/skip is stable) — the eval set should treat notify/skip as the contract.
+> inputs (notify/skip is stable), the eval set should treat notify/skip as the contract.
 - Local testing via tunnel (ngrok-style)
 - **Outcome:** simulated webhook event produces a sensible notification decision + drafted message end-to-end
 
-### Day 5 — Notifications + weekly digest
+### Day 5, Notifications + weekly digest
 
 - Email (Resend/similar) or Telegram bot delivery
 - Scheduled weekly digest job (Vercel cron): week's stats → LLM-written summary → send
-- Notification log table (what was sent, when, triggered by what — also your debugging trail)
+- Notification log table (what was sent, when, triggered by what, also your debugging trail)
 - **Outcome:** real notification arrives on your phone/inbox from a real or simulated run event
 
-> **▸ Day 5 — done (2026-08-17).** A real notification arrived on the phone from the pipeline
+> **▸ Day 5, done (2026-08-17).** A real notification arrived on the phone from the pipeline
 > (`judged: notify · sent`), and the weekly digest sent on an empty week. Detail in
 > [DAY-5.md](DAY-5.md).
 >
-> **Telegram, not email — inverting this plan's §3 default.** The stated outcome is a phone
+> **Telegram, not email, inverting this plan's §3 default.** The stated outcome is a phone
 > push, and email arrives in an inbox you check rather than as a notification you don't. No
-> domain verification, no deliverability work whose omission would put a notification in spam —
+> domain verification, no deliverability work whose omission would put a notification in spam,
 > which for this system is indistinguishable from the judge choosing silence. Delivery sits
 > behind a `Notifier` interface, so adding email later is one implementation, not a rewrite.
 >
 > **Judgment and delivery are separate:** the row is written before the send, so a send failure
 > never re-judges, a judgment is recorded even with no channel configured, and retries are
-> bounded by age. Notify rows send **inline** from the webhook — the promise is a message
+> bounded by age. Notify rows send **inline** from the webhook, the promise is a message
 > minutes after the run, not on the next tick; the hourly sweep exists only for outages.
 >
 > **The digest degrades in the opposite direction to alerts.** Alerts collapse to silence
-> (Day 4); the digest is scheduled and expected, so silence would look like a broken cron — it
+> (Day 4); the digest is scheduled and expected, so silence would look like a broken cron, it
 > falls back to a deterministic body built from SQL. Same failure surface, opposite correct
 > answer, because the cost asymmetry is reversed.
 >
@@ -446,30 +446,30 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > week: *"Most of the other checks stayed dormant this week for lack of data rather than because
 > they came back clear."*
 >
-> **Still unverified:** Vercel Cron actually firing (nothing is deployed — Day 8), retry after a
-> real outage, and digest quality on a *busy* week — the one live run had zero sessions.
+> **Still unverified:** Vercel Cron actually firing (nothing is deployed, Day 8), retry after a
+> real outage, and digest quality on a *busy* week, the one live run had zero sessions.
 
-### Day 6 — Chat + dashboard
+### Day 6, Chat + dashboard
 
 - Vercel AI SDK chat route; tools: `query_metrics`, `render_chart`; citation of specific runs (date + id)
 - Dashboard: metric cards, Recharts trends (pace, weekly mileage, HR drift), sync status panel
 - **Outcome:** on-demand questions answered with text + charts, alongside the proactive layer
 
-> **▸ Revised after Day 2 — the dashboard must surface rule eligibility.**
+> **▸ Revised after Day 2, the dashboard must surface rule eligibility.**
 > A **data coverage panel** showing which insights are currently active and which are dormant
 > for want of data. Without it, "no recovery flags this week" is ambiguous between *you're fine*
-> and *the watch wasn't worn* — and the dashboard is where that ambiguity is cheapest to resolve.
+> and *the watch wasn't worn*, and the dashboard is where that ambiguity is cheapest to resolve.
 > It doubles as the feedback loop that makes wearing the watch worthwhile: you can see what
 > switches on.
 >
 > Charts must also not interpolate across gaps. A pace line that draws straight through a
 > two-month layoff is asserting training that didn't happen.
 
-> **▸ Added after §1a — the dashboard gains write paths, and chat gains a job.**
+> **▸ Added after §1a, the dashboard gains write paths, and chat gains a job.**
 >
 > **Weight** gets a small form: defaults to today, one tap to submit, trend shown immediately so
 > the entry visibly earns its keep. Design for the failure mode that actually kills manual
-> logging — forgetting — not for data richness.
+> logging, forgetting, not for data richness.
 >
 > **Meals are logged in the chat layer**, not a form. Photo or text in, identified items back,
 > edit the portions, save. This makes the chat surface load-bearing rather than secondary, which
@@ -479,16 +479,16 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > Charts follow the §1a metrics: cross-modal weekly load, aerobic efficiency, strength volume,
 > bodyweight, and intake as a **weekly average** rather than daily totals.
 
-> **▸ Day 6 — done (2026-08-20).** Chat answers questions from live SQL with the query shown,
+> **▸ Day 6, done (2026-08-20).** Chat answers questions from live SQL with the query shown,
 > and the dashboard surfaces the proactive layer's own reasoning. Detail in [DAY-6.md](DAY-6.md).
 >
 > **Built on the Vercel AI SDK + AI Elements**, as this section specified. A first pass used the
-> Anthropic SDK directly (consistent with Days 4–5) and was rewritten — the AI SDK's typed tool
+> Anthropic SDK directly (consistent with Days 4-5) and was rewritten, the AI SDK's typed tool
 > parts make rendering a tool result as a component type-safe end to end, and `useChat` removes
 > the hand-rolled transport entirely.
 >
 > **`query_metrics` is guarded in layers, outermost first:** a Postgres `READ ONLY` transaction,
-> a statement timeout, a row cap, then keyword/shape checks. The ordering is the point —
+> a statement timeout, a row cap, then keyword/shape checks. The ordering is the point:
 > `select nextval(...)` passes every string check and is rejected by the transaction. The guards
 > live in `queryMetrics`, not the tool definition, so swapping SDKs could not weaken them; that
 > was proved by actually swapping SDKs.
@@ -496,8 +496,8 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > **Charts stay hand-rolled SVG** rather than Recharts: never drawing across a gap is precisely
 > what a charting library does by default.
 >
-> **The honesty constraint transferred a third time, unprompted** — *"the most recent sync was
-> 17 Aug, so anything you did on 18–20 Aug wouldn't be in the database yet — that's a data gap,
+> **The honesty constraint transferred a third time, unprompted**, *"the most recent sync was
+> 17 Aug, so anything you did on 18-20 Aug wouldn't be in the database yet, that's a data gap,
 > not necessarily rest."*
 >
 > **A real inconsistency caught:** weekly load was initially `sum(suffer_score)` in SQL, so the
@@ -507,7 +507,7 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > **Still unverified:** the 5s statement timeout (tables too small to trigger it), adversarial
 > input against the SQL tool, the dashboard on a large dataset, and mobile layout.
 
-### Day 7 — Nutrition + body composition ✅
+### Day 7, Nutrition + body composition ✅
 
 > **▸ Added 2026-08-09.** New day, not a squeeze into Day 6. It sits here because meal logging
 > is conversational and therefore depends on Day 6's chat layer already existing.
@@ -520,18 +520,18 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
   → save. The model emits `{item, count, grams}`; kcal and macros come from `foods` via SQL
 - Weight form on the dashboard; protein and intake panels; phase boundaries drawn on the weight
   chart rather than smoothed across
-- **Outcome:** photograph a plate, correct a portion, save it — and the weekly protein average
+- **Outcome:** photograph a plate, correct a portion, save it, and the weekly protein average
   moves. The same dish logged a week later produces the identical number, proving the
   arithmetic lives in the database and not in the model.
 - **Risk:** confirm-before-save is right for accuracy and wrong for friction, and friction is
   the only thing that decides whether food logging survives past week two. If it lapses, the
-  retreat is save-immediately-edit-later — not abandoning the feature.
+  retreat is save-immediately-edit-later, not abandoning the feature.
 
-### Day 8 — Deploy + polish ✅
+### Day 8, Deploy + polish ✅
 
 - Vercel deploy; re-register webhook against public URL; cron live
 
-> **▸ Added after Day 4 — the first smoke test after registering is a manual activity.**
+> **▸ Added after Day 4, the first smoke test after registering is a manual activity.**
 > Real Strava delivery was deliberately not tunnel-tested on Day 4 (the subscription would
 > have pointed at a disposable URL). Day 8 therefore carries two untested things at once: the
 > real webhook contract and `after()` on Vercel. So immediately after `npm run webhook --
@@ -541,27 +541,27 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 > path, which also cleans the test data out of history). Only then wait for a real run.
 > A controlled, deletable event beats debugging both unknowns during the demo moment.
 - Error/empty states; README with architecture diagram telling the "chat can't do this" story
-- Test set: 8–10 chat questions + 3–4 simulated events with expected notification behavior
-- **Outcome:** live system that messages you after your next real run — that moment is your demo
+- Test set: 8-10 chat questions + 3-4 simulated events with expected notification behavior
+- **Outcome:** live system that messages you after your next real run, that moment is your demo
 
-> **▸ Revised after Day 8 — deploying turned "polish" into a real pass, because the first
+> **▸ Revised after Day 8, deploying turned "polish" into a real pass, because the first
 > place it ran was a phone.**
 > The plan treated polish as error/empty states. On a live URL, opened on the device it's
 > actually used on, the gaps were interaction ones the desktop never showed:
 >
 > - **A tap did two things at once.** Every chart is a click-to-ask target; the data marks
->   stopped `pointerdown` to suppress that, but chat opens on `click` — a separate event that
+>   stopped `pointerdown` to suppress that, but chat opens on `click`, a separate event that
 >   still bubbled. So tapping a bar to read its tooltip *also* threw the chat open. The lesson
 >   is small and exact: pointer and click are different events with different propagation, and
 >   suppressing one is not suppressing the other.
 > - **Installability is invisible by default.** iOS Safari never prompts, and Chrome retired
 >   its banner, so a manifest + service worker earns the "installable" badge and nothing else.
 >   Added an explicit in-app Install control (native prompt on Android, the Share-sheet
->   instruction on iOS) — the affordance the platforms stopped providing.
+>   instruction on iOS), the affordance the platforms stopped providing.
 > - **The first byte, not the bundle, was the wait.** `getDashboardData` fired ~a dozen
 >   independent queries in series, one Neon round-trip each on a `max: 1` connection. Issued
 >   together in one `Promise.all`, postgres.js pipelines them over the single connection and
->   the batch costs roughly one round-trip — warm TTFB roughly halved. The client JS was never
+>   the batch costs roughly one round-trip, warm TTFB roughly halved. The client JS was never
 >   the problem; measuring said so before any code changed.
 > - **Empty states and safe areas.** A `.void-box` used in the markup but never styled collapsed
 >   two lines into one ("nothing loggedtap Ask"); the download menu on a chat table was sheared
@@ -574,7 +574,7 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 
 ## 6. How We'll Build
 
-Deliberately, in VS Code + Claude — every layer understood and owned, not generated wholesale:
+Deliberately, in VS Code + Claude, every layer understood and owned, not generated wholesale:
 
 - One scoped task per session; architecture and debugging discussion in chat, edits in the editor
 - Each day ends with a working, tested slice
@@ -584,7 +584,7 @@ Deliberately, in VS Code + Claude — every layer understood and owned, not gene
 
 ### As a personal tool
 
-- A training system that watches so you don't have to — insights arrive, you never have to remember to check
+- A training system that watches so you don't have to, insights arrive, you never have to remember to check
 - Overtraining/anomaly flags grounded in your real baselines, not generic thresholds
 - Weekly digest replacing manual Strava scrolling
 - On-demand answers with exact aggregation (SQL, not LLM arithmetic)
@@ -592,58 +592,58 @@ Deliberately, in VS Code + Claude — every layer understood and owned, not gene
 ### For your resume (honestly claimable once built)
 
 - **Event-driven architecture:** webhook receiver → validation → async pipeline → downstream actions
-- **LLM system design:** LLM as judgment layer over deterministic computation — deciding significance and communicating, never calculating; a defensible answer to "where should the LLM be in the loop?"
+- **LLM system design:** LLM as judgment layer over deterministic computation, deciding significance and communicating, never calculating; a defensible answer to "where should the LLM be in the loop?"
 - **LLM tool-calling / orchestration:** multi-tool chat layer (SQL + chart tools), Vercel AI SDK
 - **Multimodal structured extraction:** food photo → typed items → deterministic nutrition lookup, with a human confirmation step before anything is persisted
 - **API integration:** OAuth token lifecycle, rate-limit-aware backfill, ~~two-source reconciliation/dedup~~ provenance-based deduplication
 - **Scheduled + reactive workloads:** cron digests + webhook-triggered processing on serverless
-- **Product judgment:** notification-fatigue tuning — knowing when an AI system should stay quiet
+- **Product judgment:** notification-fatigue tuning, knowing when an AI system should stay quiet
 - **Frontend & performance:** mobile-first, installable PWA (manifest, maskable icons, an API-safe service worker) with hand-rolled SVG charts that draw gaps instead of interpolating them; profiled the initial load to the server, not the bundle, and roughly halved TTFB by pipelining a serial query chain into a single round-trip; touch-interaction and safe-area bugs caught only by opening the deployed app on a phone
 
-> **▸ Revised after Days 1–2 — what's actually claimable now.**
+> **▸ Revised after Days 1-2, what's actually claimable now.**
 > "Two-source reconciliation" describes work that didn't happen, because the duplicates it
 > targeted don't exist. What replaced it is stronger, because it's the part of the job that
 > only shows up against real data:
 >
-> - **Data-quality engineering** — identified a measurement confound (resting HR varying ~10 bpm
+> - **Data-quality engineering**, identified a measurement confound (resting HR varying ~10 bpm
 >   with wear habits rather than fitness) and added explicit quality columns so downstream logic
 >   can tell *absent* from *valid*.
-> - **Capability-gated analysis** — insight rules with declared data preconditions and
+> - **Capability-gated analysis**, insight rules with declared data preconditions and
 >   regime-aware baselines, so the system degrades honestly through sensor gaps and recovers
 >   automatically when data returns.
-> - **Polyglot service boundaries** — a second language isolated behind a database table,
+> - **Polyglot service boundaries**, a second language isolated behind a database table,
 >   confined off the request path, with an explicit test for when that boundary is violated.
-> - **Reverse-engineering undocumented APIs** — mapped nested, device-keyed payloads by
+> - **Reverse-engineering undocumented APIs**, mapped nested, device-keyed payloads by
 >   inspecting stored responses; corrected three mappings that produced plausible-but-wrong
 >   values without ever raising.
-> - **Validation against a reference implementation** — our acute:chronic ratio checked against
+> - **Validation against a reference implementation**, our acute:chronic ratio checked against
 >   Garmin's on 72 overlapping days.
-> - **Evidence-based dependency selection** — rejected the in-stack library on measured API
+> - **Evidence-based dependency selection**, rejected the in-stack library on measured API
 >   surface (1 of 4 required metric families) rather than convenience.
 >
 > The interview-grade framing for any of these is the **trade-off**, not the feature.
 > "I kept the raw payloads" is a fact. "I kept them because I expected the schema to be wrong
-> by Day 3, and re-fetching from a rate-limited API costs far more than disk — then the bug
+> by Day 3, and re-fetching from a rate-limited API costs far more than disk, then the bug
 > that broke that guarantee cost me an hour on Day 2" is an answer.
 
 ### Prior art to differentiate against
 
-A common version of this project already exists publicly: Garmin data pulled into a dashboard with Claude answering "should I train today?" — one such build was done by a non-developer in ~90 minutes with Claude Code. That genre is **ask-based**: you open it and query.
+A common version of this project already exists publicly: Garmin data pulled into a dashboard with Claude answering "should I train today?", one such build was done by a non-developer in ~90 minutes with Claude Code. That genre is **ask-based**: you open it and query.
 
 Table stakes (don't lead with these): dashboard, chat over training data, load-ratio insight.
 
 The differentiators here: push not pull (unprompted notifications), deterministic computation with the LLM restricted to judgment and phrasing, and the event-driven infrastructure (webhooks, async pipeline, ~~two-source dedup~~ provenance tracking, cron digests, notification tuning) that takes days rather than 90 minutes.
 
-> **▸ Revised after Day 2 — a differentiator the plan didn't anticipate.**
+> **▸ Revised after Day 2, a differentiator the plan didn't anticipate.**
 > Handling **intermittent sensor availability** honestly. The 90-minute-build genre assumes the
 > data is there; against real wear habits it either goes quiet without saying why, or reports
 > confounded numbers as if they were measurements. Capability gating and regime-aware baselines
-> are unglamorous and only surface once a system has run against messy real data — which is
+> are unglamorous and only surface once a system has run against messy real data, which is
 > exactly why they're worth leading with.
 
 ### The one-line interview answer
 
-"Claude with a Strava MCP can answer questions when you ask. My system watches every run as it happens, maintains derived training state, and tells me when something matters — retrieval versus initiative. I built the layer that turns tool access into a product."
+"Claude with a Strava MCP can answer questions when you ask. My system watches every run as it happens, maintains derived training state, and tells me when something matters, retrieval versus initiative. I built the layer that turns tool access into a product."
 
 ## 8. Success Criteria
 
@@ -653,64 +653,64 @@ The differentiators here: push not pull (unprompted notifications), deterministi
 - ~~Dedup verified on dual-logged activities~~
 - Live deployed URL + a notification screenshot for the README
 
-> **▸ Revised after Day 2 — one criterion struck, three added.**
+> **▸ Revised after Day 2, one criterion struck, three added.**
 > "Dedup verified on dual-logged activities" is unmeasurable: no dual-logged activities exist.
 > Replaced by criteria that test what the system actually has to get right:
 >
-> - **Provenance verified** — every Garmin-uploaded activity carries its parsed Garmin id
+> - **Provenance verified**, every Garmin-uploaded activity carries its parsed Garmin id
 >   (currently 17/17), and one idempotent upsert serves both backfill and webhook paths.
-> - **Graceful degradation** — replayed across the 14 June wear boundary, the engine reports
+> - **Graceful degradation**, replayed across the 14 June wear boundary, the engine reports
 >   *insufficient data* for gated rules rather than firing on absent inputs or silently implying
 >   normality.
-> - **Baseline integrity** — a resting-HR baseline computed across the wear boundary does not
+> - **Baseline integrity**, a resting-HR baseline computed across the wear boundary does not
 >   shift materially, proving it tracks the athlete rather than the measurement regime.
-> - **ACWR agreement** — our computed ratio is compared against `garmin_acwr` on the 72
+> - **ACWR agreement**, our computed ratio is compared against `garmin_acwr` on the 72
 >   overlapping days, with disagreements explained rather than averaged away.
 
-> **▸ Added after §1a — criteria tied to the stated goals.**
+> **▸ Added after §1a, criteria tied to the stated goals.**
 >
-> - **Cross-modal load is not runnable-only** — a week of 4 gym sessions and no run produces a
+> - **Cross-modal load is not runnable-only**, a week of 4 gym sessions and no run produces a
 >   non-trivial load figure. Under the original mileage-based design it would have read zero.
 > - **Aerobic efficiency is computed and trended** on every HR-bearing run, and the VO2max
 >   decline from 40.3 to 38.1 is visible in the system rather than something I found by hand.
 > - **Strength volume tracked per session and per lift**, from Garmin's exercise sets.
-> - **Manual logging survives a missed day** — a gap in weight entries degrades the trend
+> - **Manual logging survives a missed day**, a gap in weight entries degrades the trend
 >   without breaking it, and is shown as a gap rather than interpolated.
-> - **A meal photo becomes a saved, checked record** — items identified, portions edited,
+> - **A meal photo becomes a saved, checked record**, items identified, portions edited,
 >   totals computed by SQL from the `foods` table rather than asserted by the model.
-> - **Repeat meals give repeat numbers** — the same dish logged twice a week apart produces
+> - **Repeat meals give repeat numbers**, the same dish logged twice a week apart produces
 >   identical kcal, proving the `foods` table is doing the arithmetic and not the model.
 > - **Nothing unconfirmed is ever counted** toward a daily or weekly total.
 
 ## 9. Risks
 
-- **Garmin unofficial API** — undocumented, breaks periodically; fallback manual CSV or Strava-only v1
-- **Webhook testing needs public URL** — tunnel locally (Day 4), deploy re-registration (Day ~~7~~ 8)
-- **Notification tuning is subjective** — expect iteration on the significance prompt after living with it for a week; that iteration itself is a good story
+- **Garmin unofficial API**, undocumented, breaks periodically; fallback manual CSV or Strava-only v1
+- **Webhook testing needs public URL**, tunnel locally (Day 4), deploy re-registration (Day ~~7~~ 8)
+- **Notification tuning is subjective**, expect iteration on the significance prompt after living with it for a week; that iteration itself is a good story
 
-> **▸ Added after Day 3 — the risk the register still doesn't name.**
+> **▸ Added after Day 3, the risk the register still doesn't name.**
 > **Most thresholds cannot be validated at this data volume.** The sensitivity sweep found
 > 5 of 10 sit on cliffs, not because they were chosen badly but because each governs only
-> 3–17 decisions across 28 activities and 11 worn nights. That is a statement about sample
+> 3-17 decisions across 28 activities and 11 worn nights. That is a statement about sample
 > size, not about the numbers.
 >
 > The mitigation is disclosure rather than confidence: thresholds are labelled METHOD or
 > PREFERENCE, the sweep runs on demand, and `docs/DAY-3.md` records which single threshold is
 > actually validated. **Being able to say which numbers are load-bearing and which are
-> unverified assumptions is the deliverable** — a system whose arbitrary choices are labelled
+> unverified assumptions is the deliverable**, a system whose arbitrary choices are labelled
 > is defensible in a way that one whose choices are merely confident is not.
 >
 > Re-run `npm run sensitivity` as history accumulates. Cliffs flattening into plateaus is
 > itself the evidence, and that transition is worth capturing when it happens.
-- **Vercel serverless limits** — long backfills may need chunking or a one-off local script rather than a serverless function
+- **Vercel serverless limits**, long backfills may need chunking or a one-off local script rather than a serverless function
 
-> **▸ Revised after Days 1–2 — how these actually played out, plus what wasn't on the list.**
+> **▸ Revised after Days 1-2, how these actually played out, plus what wasn't on the list.**
 >
-> **Retired.** *Vercel serverless limits* — resolved by design: the backfill is a local script,
-> checkpointed per page. *Garmin API breaking* — didn't happen; the risk that materialized was
+> **Retired.** *Vercel serverless limits*, resolved by design: the backfill is a local script,
+> checkpointed per page. *Garmin API breaking*, didn't happen; the risk that materialized was
 > the **wrong library**, chosen on language convenience rather than measured API surface.
 >
-> **Still open.** Webhook public URL (Day 4/8). Notification tuning — now harder than stated,
+> **Still open.** Webhook public URL (Day 4/8). Notification tuning, now harder than stated,
 > because the prompt must also handle "insufficient data" without making absence sound
 > reassuring.
 >
@@ -718,13 +718,13 @@ The differentiators here: push not pull (unprompted notifications), deterministi
 >
 > - **Sparse data undermines personalized baselines.** 5 of 14 runs have HR; sleep and HRV cover
 >   13% of days. Mitigated by gating, not by lowering thresholds until something fires.
-> - **Silent correctness bugs.** Three separate ones so far — an archive column that quietly
+> - **Silent correctness bugs.** Three separate ones so far, an archive column that quietly
 >   stored a fifth of what it claimed, a login that reported success without completing, and a
 >   metric read from the wrong subtree. **None raised. All produced plausible values.** The
 >   recurring lesson: verify by inspecting stored data, not by the absence of an exception.
 > - **The single-user assumption is load-bearing.** `daily_metrics` is keyed by date alone, and
->   the OAuth entrypoint is gated by one shared secret. Fine as scoped (§4 excludes multi-user)
->   — but it is an assumption, not an oversight, and worth naming as such in an interview.
+>   the OAuth entrypoint is gated by one shared secret. Fine as scoped (§4 excludes multi-user),
+>   but it is an assumption, not an oversight, and worth naming as such in an interview.
 > - **Garmin credentials sit in a local `.env` as a plaintext password**, because the unofficial
 >   API has no OAuth. Acceptable for a single-user local tool; it would not be for anything
 >   deployed multi-user, and that's the honest boundary of this design.

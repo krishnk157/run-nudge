@@ -1,4 +1,4 @@
-# Day 8 — Deploy, and what deploying exposed
+# Day 8: Deploy, and what deploying exposed
 
 The system is live at `https://training-monitor-iota.vercel.app`, the Strava
 webhook is registered against it, and a real activity has been through the whole
@@ -14,7 +14,7 @@ production deploy removed it, and what was left was:
 
 - a dashboard showing one person's training history, bodyweight and meals
 - three write routes (`/api/meals`, `/api/body`, `/api/phases`)
-- **`/api/chat` — a language model with read access to the entire database,
+- **`/api/chat`, a language model with read access to the entire database,
   billed to the athlete's API key**
 
 all reachable by anyone who guessed the URL. Verified, not assumed:
@@ -29,7 +29,7 @@ else had ever faced the internet.
 
 The fix is a single-user answer to a single-user problem: one shared secret,
 one `HttpOnly` cookie set by visiting `/api/auth?token=…` once per device, and
-middleware in front of everything. No accounts table, no login form — inventing
+middleware in front of everything. No accounts table, no login form; inventing
 either would be solving a problem this system does not have.
 
 Three paths stay open, each because **something other than a cookie
@@ -64,7 +64,7 @@ model until you say who else can reach it.
 > Hobby accounts are limited to daily cron jobs. This cron expression
 > `(0 * * * *)` would run more than once per day.
 
-The hourly job is the delivery sweep — the backstop that retries a notification
+The hourly job is the delivery sweep, the backstop that retries a notification
 Telegram refused. Moving it to daily is a one-character edit and leaves a failed
 send sitting for up to 24 hours, which quietly changes what the system promises.
 
@@ -80,7 +80,7 @@ A constraint you cannot change is still a design input. It just isn't yours.
 
 ## 3. The regression set, and the bug it found on its first run
 
-The plan asked for "8–10 chat questions with expected behaviour". `npm run eval`
+The plan asked for "8-10 chat questions with expected behaviour". `npm run eval`
 is that, and it takes a target URL so the same set runs against localhost or
 production.
 
@@ -89,15 +89,15 @@ say, and none of it is enforced by types. A prompt edit or a model swap can undo
 all of it without a single test going red. So the checks are of two kinds, and
 they are labelled:
 
-- **STRUCTURAL** — derived from the stream itself: which tools ran, in what
+- **STRUCTURAL**, derived from the stream itself: which tools ran, in what
   order, with what arguments. Deterministic. A failure is unambiguous, and only
   these fail the run.
-- **HEURISTIC** — phrase matching over prose. A model can express a caveat in
+- **HEURISTIC**, phrase matching over prose. A model can express a caveat in
   words the script does not recognise, so a miss is a prompt to read the
   transcript, not a verdict.
 
 **First run, first case: a real regression.** *"What was my fastest 5k"* spent
-all six tool-loop steps querying and returned **no text at all** — a blank reply,
+all six tool-loop steps querying and returned **no text at all**, a blank reply,
 no error, nothing on screen to explain it. That came from the Sonnet switch made
 while cutting costs: Sonnet issues more queries than Opus for the same question,
 and six steps was tuned for Opus.
@@ -110,7 +110,7 @@ model can see is one it can plan against.**
 Two other failures were the *checks* being wrong, not the system: it declined
 dietary advice with "I'm not able to give dietary advice" and the pattern only
 knew "can't" and "don't". Both are widened, with the transcript that disproved
-them recorded in the comment — which is the honest way to maintain a heuristic.
+them recorded in the comment, which is the honest way to maintain a heuristic.
 
 ---
 
@@ -122,7 +122,7 @@ Registering the subscription failed with Strava's:
 
 The endpoint returned 200 to a manual `curl` at that exact moment. The cause was
 that `npm run webhook -- create <url>` passes its argument to Strava verbatim,
-and a bare origin registers `/` as the callback — which had returned 200 all
+and a bare origin registers `/` as the callback, which had returned 200 all
 through development and now returns **401 behind the gate built an hour
 earlier**. Two correct changes, an hour apart, producing an error message about
 neither.
@@ -146,7 +146,7 @@ delete  → processed in 806ms   (activity row removed)
 All three aspect types, from real Strava infrastructure, on the first attempt.
 The delete also exercised something no test had: a notification whose activity
 no longer exists. The feed `left join`s activities rather than inner-joining, so
-the judgment survives with a null date instead of vanishing — the record of what
+the judgment survives with a null date instead of vanishing, the record of what
 the system decided is not the athlete's to delete by editing Strava. That was a
 Day 6 choice that had never been exercised until now.
 
@@ -181,7 +181,7 @@ production** · 106 unit tests, lint, types, build clean
   which skips the upload and file-processing path Strava runs for a watch sync
 - **The daily cron actually firing.** Vercel schedules it; nothing has watched
   one run yet
-- **The digest on a live schedule** — next Monday 12:00
+- **The digest on a live schedule**, next Monday 12:00
 - A notification actually arriving on Telegram *from production* (the last real
   send was from localhost on Day 5)
 - Mobile layout on a real phone
