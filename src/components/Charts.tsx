@@ -165,6 +165,12 @@ function useTip() {
      * stopPropagation matters: the whole chart is a click target that opens
      * chat with a question about it, and tapping a bar to read it should not
      * also launch a conversation.
+     *
+     * Both events have to be stopped. `pointerdown` and `click` are separate
+     * events with separate propagation — stopping only pointerdown still let a
+     * synthesised `click` bubble to the card, so on a phone every tap on a mark
+     * popped the tooltip *and* threw the chat open. onClick is the one the card
+     * actually listens on, so it is the one that has to be caught here.
      */
     bind: (t: Tip) => ({
       onPointerEnter: () => setTip(t),
@@ -174,6 +180,7 @@ function useTip() {
         e.stopPropagation();
         setTip(t);
       },
+      onClick: (e: React.MouseEvent) => e.stopPropagation(),
       onFocus: () => setTip(t),
       onBlur: () => setTip(null),
       tabIndex: -1,

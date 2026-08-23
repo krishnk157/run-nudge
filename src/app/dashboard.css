@@ -152,9 +152,15 @@ body {
   background: color-mix(in srgb, var(--ground) 88%, transparent);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--rule);
+  /* Installed on a notched phone (viewport-fit=cover), the header sits under
+     the status bar. Pad the top inset in so the blurred bar fills the notch
+     and the brand row clears it. Zero on every device without one. */
+  padding-top: env(safe-area-inset-top);
 }
 .top-inner {
   max-width: 980px; margin: 0 auto; padding: 12px 20px;
+  padding-left: max(20px, env(safe-area-inset-left));
+  padding-right: max(20px, env(safe-area-inset-right));
   display: flex; align-items: center; gap: 16px;
 }
 .brand {
@@ -180,6 +186,18 @@ body {
   100% { box-shadow: 0 0 0 0 transparent; }
 }
 .brand-sub { color: var(--ink-3); font-weight: 400; letter-spacing: 0.1em; font-size: 10px; }
+
+/* Install control: sits beside Ask in the header. The iOS hint drops below it
+   as a small instrument-panel note, since iOS offers no install event to fire. */
+.install-wrap { position: relative; display: flex; }
+.install-hint {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
+  width: max-content; max-width: 220px;
+  padding: 8px 10px; border: 1px solid var(--rule-strong);
+  background: var(--surface-2); box-shadow: var(--elev-hi);
+  font-family: var(--font-data); font-size: 11.5px; line-height: 1.5; color: var(--ink-2);
+}
+.install-hint b { color: var(--ink); font-weight: 600; }
 
 .btn {
   font-family: var(--font-data); font-size: 12px;
@@ -341,17 +359,27 @@ body {
   position: relative; transition: background .18s ease;
 }
 .chart:hover { background: var(--surface-2); }
-/* The charts have been clickable since Day 6 and never said so. */
+/* The charts have been clickable since Day 6 and never said so. A bordered
+   chip rather than bare text, so it reads as an affordance sitting in the
+   corner and never as a prefix to the readout beside it. */
 .chart::after {
-  content: "ask ↗"; position: absolute; top: 14px; right: 16px;
-  font-family: var(--font-data); font-size: 10px; letter-spacing: .1em;
+  content: "ask ↗"; position: absolute; top: 12px; right: 14px;
+  font-family: var(--font-data); font-size: 9.5px; letter-spacing: .1em;
   text-transform: uppercase; color: var(--brand);
+  padding: 2px 6px; border: 1px solid color-mix(in srgb, var(--brand) 35%, transparent);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
   opacity: 0; transition: opacity .18s ease;
 }
 .chart:hover::after { opacity: 1; }
 .chart:nth-child(2n) { border-right: none; }
 .chart:nth-last-child(-n + 2) { border-bottom: none; }
-.chart-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
+/* The readout in the head is right-aligned into the same corner the ask chip
+   occupies. Reserve that corner so a two-digit load and "ask ↗" never stack
+   into an unreadable "ask 69". */
+.chart-head {
+  display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px;
+  padding-right: 52px; min-height: 22px;
+}
 .chart-val { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: 19px; margin-left: auto; }
 .chart-note { font-family: var(--font-data); font-size: 11px; color: var(--ink-3); margin-top: 8px; }
 .chart svg { width: 100%; height: auto; display: block; overflow: visible; }
@@ -361,6 +389,20 @@ body {
   border: 1px dashed var(--rule-strong); color: var(--dormant);
   font-family: var(--font-data); font-size: 11.5px; text-align: center;
 }
+/*
+ * Empty states for the nutrition panels, in the same dashed-void language as
+ * .empty-chart. This class was used in the markup but never styled, so its two
+ * lines collapsed onto one — "nothing logged" and its hint ran together as
+ * "nothing loggedtap Ask". Stack them, and set the hint a step quieter.
+ */
+.void-box {
+  margin-top: 10px; min-height: 74px; padding: 12px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; text-align: center;
+  border: 1px dashed var(--rule-strong); color: var(--dormant);
+  font-family: var(--font-data); font-size: 12px;
+}
+.void-box span { color: var(--ink-3); font-size: 11px; }
 
 /* chat slide-over */
 .scrim {
@@ -377,6 +419,9 @@ body {
 .sheet.on { transform: none; }
 .sheet-head {
   padding: 14px 18px; border-bottom: 1px solid var(--rule);
+  /* Full-bleed on a phone, the header sits under the status bar; pad the top
+     inset in so "Ask · your data only" and Esc clear the notch. */
+  padding-top: max(14px, env(safe-area-inset-top));
   display: flex; align-items: center; gap: 10px;
 }
 /*
@@ -473,13 +518,29 @@ body {
 }
 .tool-call b { color: var(--ink-2); font-weight: 600; }
 .tool-call.err { border-color: var(--crit); color: var(--crit); }
-.sheet-foot { padding: 12px 14px 14px; border-top: 1px solid var(--rule); background: var(--surface); }
+.sheet-foot {
+  padding: 12px 14px 14px; border-top: 1px solid var(--rule); background: var(--surface);
+  /* Clear the home indicator so the composer and Send button stay tappable. */
+  padding-bottom: max(14px, env(safe-area-inset-bottom));
+}
 .ask-input {
   width: 100%; font-family: var(--font-ui); font-size: 14px; padding: 9px 11px;
   background: var(--ground); color: var(--ink); border: 1px solid var(--rule-strong);
 }
 .ask-input::placeholder { color: var(--ink-3); }
 .hint { font-family: var(--font-data); font-size: 11px; color: var(--ink-3); }
+
+/*
+ * Composer footer: Photo · hint · Send. Laid out justify-between, the hint had
+ * no room between the two controls on a phone and printed on top of the Photo
+ * button. Let the row wrap and give the hint its own full-width line beneath
+ * the controls, so the buttons keep their corners and the help text stays
+ * readable at any width.
+ */
+.sheet-foot [data-slot="input-group-addon"] { flex-wrap: wrap; row-gap: 7px; }
+.sheet-foot [data-slot="input-group-addon"] .hint {
+  order: 3; flex: 1 0 100%; line-height: 1.4;
+}
 .suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .suggestion {
   font-family: var(--font-data); font-size: 11px; padding: 4px 8px;
@@ -885,6 +946,17 @@ body {
 }
 .md td { color: var(--ink-2); }
 .md tr:last-child td { border-bottom: none; }
+
+/*
+ * Streamdown's copy/download menus open right-0 from a toolbar pinned to the
+ * table's right edge. In the full-bleed sheet that edge is the screen edge, so
+ * the last few px of the menu — and on a narrow phone the labels themselves —
+ * land under the sheet border and are clipped by the scrolling column. Inset
+ * them so the menu clears the edge and reads in full.
+ */
+.sheet .md [data-streamdown="table-wrapper"] .relative > div[class*="absolute"] {
+  right: 10px;
+}
 
 /* keep the caret at the end of streaming markdown, not on its own line */
 .md.streaming > *:last-child::after {

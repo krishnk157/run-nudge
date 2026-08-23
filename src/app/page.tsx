@@ -3,6 +3,7 @@ import "./dashboard.css";
 import { ChatPanel } from "@/components/ChatPanel";
 import { Coverage } from "@/components/Coverage";
 import { BodyForm } from "@/components/BodyForm";
+import { InstallButton } from "@/components/InstallButton";
 import {
   AskLink,
   EfficiencyChart,
@@ -80,6 +81,7 @@ export default async function Home() {
             <span className="brand-sub">TRAINING MONITOR</span>
           </div>
           <div style={{ flex: 1 }} />
+          <InstallButton />
           <ChatPanel />
         </div>
       </header>

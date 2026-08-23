@@ -143,83 +143,159 @@ function chipsFor(findings: unknown): FeedEntry["chips"] {
 }
 
 export async function getDashboardData(): Promise<DashboardData> {
-  const today = await athleteToday();
-  const [protein, weight, phases, phaseTrend, meals, lastWeight] =
-    await Promise.all([
+  /*
+   * One wave, not a queue.
+   *
+   * Every fetch below is independent of the others, and the connection is
+   * `max: 1`, so issued sequentially each `await` paid a full network
+   * round-trip to Neon — a dozen of them in series is what made the first byte
+   * take seconds. Fired together, postgres.js pipelines them over the single
+   * connection and the whole batch costs about one round-trip. The only real
+   * dependency is the load model's short internal chain (anchors → calibration
+   * → per-activity load), kept as its own async step inside the wave.
+   */
+  const [
+    today,
+    [protein, weight, phases, phaseTrend, meals, lastWeight],
+    freshRows,
+    stateRows,
+    report,
+    lastAcwr,
+    vo2,
+    loads,
+    weekly,
+    pace,
+    eff,
+    feedRows,
+    totalsRows,
+  ] = await Promise.all([
+    athleteToday(),
+    Promise.all([
       proteinSummary(7),
       weightSeries(),
       phaseSpans(),
       currentPhaseTrend(),
       recentMeals(6),
       latestWeight(),
-    ]);
+    ]),
+    sql<{ last_sync: string | null; days: number | null }[]>`
+      select to_char(max(ingested_at),'YYYY-MM-DD HH24:MI') as last_sync,
+             extract(day from now() - max(ingested_at))::int as days
+      from activities`,
+    sql<
+      {
+        week_sessions: number;
+        week_hours: number;
+        last_date: string | null;
+        days_since: number | null;
+      }[]
+    >`
+      select
+        count(*) filter (where started_at_local >= current_date - 7)::int as week_sessions,
+        coalesce(round((sum(moving_time_s) filter (where started_at_local >= current_date - 7)/3600.0)::numeric,1),0)::float as week_hours,
+        to_char(max(started_at_local),'YYYY-MM-DD') as last_date,
+        (current_date - max(started_at_local)::date)::int as days_since
+      from activities`,
+    // Findings drive the coverage panel and the "state of training" strip. This
+    // is a scheduled-style evaluation (no activity), which is what a dashboard
+    // view is: "how do things stand right now", not "what about that session".
+    computeInsights(null),
+    // Last computed ACWR from the notification log, so the strip can show a
+    // value *and* admit it's from an earlier date — Day 5's staleness lesson
+    // applied to a number rather than to a row count.
+    sql<{ ratio: number; d: string }[]>`
+      select (findings->'findings') as f, to_char(created_at,'YYYY-MM-DD') as d,
+             coalesce((
+               select (x->'data'->>'ratio')::float
+               from jsonb_array_elements(findings->'findings') x
+               where x->>'rule' = 'acute_chronic_ratio' and x->>'status' <> 'ineligible'
+             ), null) as ratio
+      from notifications
+      where findings ? 'findings'
+      order by created_at desc
+      limit 50`.then((rows) =>
+      (rows as unknown as { ratio: number | null; d: string }[]).filter(
+        (r) => r.ratio != null,
+      ),
+    ),
+    sql<{ d: string; v: number }[]>`
+      select to_char(date,'YYYY-MM-DD') as d, vo2max_running as v
+      from daily_metrics where vo2max_running is not null order by date`,
+    // Weekly and calendar load come from the analysis engine's own model, not
+    // from a separate SQL expression. The first version summed Strava's
+    // suffer_score, which meant the dashboard could show a "load" the engine
+    // had never computed and would disagree with every notification. One
+    // system, one definition of load — anchors, then calibration, then loads.
+    (async () => {
+      const anchors = await getAnchors();
+      return activityLoads(anchors, await calibrate(anchors));
+    })(),
+    sql<{ week: string; gym: number; run: number; hours: number }[]>`
+      select to_char(date_trunc('week', started_at_local),'YYYY-MM-DD') as week,
+             count(*) filter (where sport_type = 'WeightTraining')::int as gym,
+             count(*) filter (where sport_type in ('Run','TrailRun','VirtualRun'))::int as run,
+             round((sum(moving_time_s)/3600.0)::numeric,1)::float as hours
+      from activities
+      where started_at_local >= current_date - interval '16 weeks'
+      group by 1 order by 1`,
+    sql<{ d: string; sec: number; km: number }[]>`
+      select to_char(started_at_local,'YYYY-MM-DD') as d,
+             round((moving_time_s / (distance_m/1000.0))::numeric, 0)::float as sec,
+             round((distance_m/1000.0)::numeric, 2)::float as km
+      from activities
+      where sport_type in ('Run','TrailRun','VirtualRun')
+        and distance_m >= 1000 and moving_time_s > 0
+      order by started_at_local`,
+    sql<{ d: string; km: number; hr: number; idx: number }[]>`
+      select to_char(started_at_local,'YYYY-MM-DD') as d,
+             round((distance_m/1000)::numeric,2)::float as km,
+             average_heartrate::float as hr,
+             round(((distance_m/moving_time_s) / nullif(average_heartrate - 58.8,0))::numeric,5)::float as idx
+      from activities
+      where sport_type in ('Run','TrailRun','VirtualRun')
+        and average_heartrate is not null and moving_time_s > 0
+      order by started_at_local`,
+    sql<
+      {
+        id: number;
+        created_at: string;
+        trigger: string;
+        decision: string;
+        severity: string | null;
+        subject: string | null;
+        message: string | null;
+        rationale: string | null;
+        status: string;
+        activity_date: string | null;
+        findings: unknown;
+      }[]
+    >`
+      select n.id, to_char(n.created_at,'YYYY-MM-DD HH24:MI') as created_at,
+             n.trigger, n.decision, n.severity, n.subject, n.message, n.rationale,
+             n.status, to_char(a.started_at_local,'YYYY-MM-DD') as activity_date,
+             n.findings
+      from notifications n
+      left join activities a on a.id = n.activity_id
+      order by n.created_at desc limit 12`,
+    sql<{ activities: number; notifications: number; sent: number }[]>`
+      select (select count(*)::int from activities) as activities,
+             (select count(*)::int from notifications) as notifications,
+             (select count(*)::int from notifications where status='sent') as sent`,
+  ]);
 
-  const [fresh] = await sql<
-    { last_sync: string | null; days: number | null }[]
-  >`
-    select to_char(max(ingested_at),'YYYY-MM-DD HH24:MI') as last_sync,
-           extract(day from now() - max(ingested_at))::int as days
-    from activities`;
-
-  const [state] = await sql<
-    {
-      week_sessions: number;
-      week_hours: number;
-      last_date: string | null;
-      days_since: number | null;
-    }[]
-  >`
-    select
-      count(*) filter (where started_at_local >= current_date - 7)::int as week_sessions,
-      coalesce(round((sum(moving_time_s) filter (where started_at_local >= current_date - 7)/3600.0)::numeric,1),0)::float as week_hours,
-      to_char(max(started_at_local),'YYYY-MM-DD') as last_date,
-      (current_date - max(started_at_local)::date)::int as days_since
-    from activities`;
-
-  // Findings drive the coverage panel and the "state of training" strip. This
-  // is a scheduled-style evaluation (no activity), which is what a dashboard
-  // view is: "how do things stand right now", not "what about that session".
-  const report = await computeInsights(null);
+  const [fresh] = freshRows;
+  const [state] = stateRows;
+  const [totals] = totalsRows;
 
   const acwrFinding = report.findings.find(
     (f) => f.rule === "acute_chronic_ratio",
   );
   const acwrData = acwrFinding?.data as Record<string, unknown> | undefined;
 
-  // Last computed ACWR from the notification log, so the strip can show a
-  // value *and* admit it's from an earlier date — Day 5's staleness lesson
-  // applied to a number rather than to a row count.
-  const lastAcwr = await sql<{ ratio: number; d: string }[]>`
-    select (findings->'findings') as f, to_char(created_at,'YYYY-MM-DD') as d,
-           coalesce((
-             select (x->'data'->>'ratio')::float
-             from jsonb_array_elements(findings->'findings') x
-             where x->>'rule' = 'acute_chronic_ratio' and x->>'status' <> 'ineligible'
-           ), null) as ratio
-    from notifications
-    where findings ? 'findings'
-    order by created_at desc
-    limit 50`.then((rows) =>
-    (rows as unknown as { ratio: number | null; d: string }[]).filter(
-      (r) => r.ratio != null,
-    ),
-  );
-
-  const vo2 = await sql<{ d: string; v: number }[]>`
-    select to_char(date,'YYYY-MM-DD') as d, vo2max_running as v
-    from daily_metrics where vo2max_running is not null order by date`;
-
-  // Weekly load comes from the analysis engine's own model, not from a
-  // separate SQL expression. The first version summed Strava's suffer_score
-  // here, which meant the dashboard could show a "load" the engine had never
-  // computed and would disagree with every notification. One system, one
-  // definition of load.
-  const anchors = await getAnchors();
-  const loads = await activityLoads(anchors, await calibrate(anchors));
   const loadByWeek = new Map<string, number>();
   for (const l of loads) {
     const d = new Date(`${l.date}T00:00:00Z`);
-    // ISO weeks start Monday, matching date_trunc('week', ...) below.
+    // ISO weeks start Monday, matching date_trunc('week', ...) above.
     const monday = new Date(d);
     monday.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
     const key = monday.toISOString().slice(0, 10);
@@ -236,68 +312,6 @@ export async function getDashboardData(): Promise<DashboardData> {
     const cur = calByDay.get(l.date) ?? { load: 0, sessions: 0 };
     calByDay.set(l.date, { load: cur.load + l.load, sessions: cur.sessions + 1 });
   }
-
-  const weekly = await sql<
-    { week: string; gym: number; run: number; hours: number }[]
-  >`
-    select to_char(date_trunc('week', started_at_local),'YYYY-MM-DD') as week,
-           count(*) filter (where sport_type = 'WeightTraining')::int as gym,
-           count(*) filter (where sport_type in ('Run','TrailRun','VirtualRun'))::int as run,
-           round((sum(moving_time_s)/3600.0)::numeric,1)::float as hours
-    from activities
-    where started_at_local >= current_date - interval '16 weeks'
-    group by 1 order by 1`;
-
-  const pace = await sql<{ d: string; sec: number; km: number }[]>`
-    select to_char(started_at_local,'YYYY-MM-DD') as d,
-           round((moving_time_s / (distance_m/1000.0))::numeric, 0)::float as sec,
-           round((distance_m/1000.0)::numeric, 2)::float as km
-    from activities
-    where sport_type in ('Run','TrailRun','VirtualRun')
-      and distance_m >= 1000 and moving_time_s > 0
-    order by started_at_local`;
-
-  const eff = await sql<
-    { d: string; km: number; hr: number; idx: number }[]
-  >`
-    select to_char(started_at_local,'YYYY-MM-DD') as d,
-           round((distance_m/1000)::numeric,2)::float as km,
-           average_heartrate::float as hr,
-           round(((distance_m/moving_time_s) / nullif(average_heartrate - 58.8,0))::numeric,5)::float as idx
-    from activities
-    where sport_type in ('Run','TrailRun','VirtualRun')
-      and average_heartrate is not null and moving_time_s > 0
-    order by started_at_local`;
-
-  const feedRows = await sql<
-    {
-      id: number;
-      created_at: string;
-      trigger: string;
-      decision: string;
-      severity: string | null;
-      subject: string | null;
-      message: string | null;
-      rationale: string | null;
-      status: string;
-      activity_date: string | null;
-      findings: unknown;
-    }[]
-  >`
-    select n.id, to_char(n.created_at,'YYYY-MM-DD HH24:MI') as created_at,
-           n.trigger, n.decision, n.severity, n.subject, n.message, n.rationale,
-           n.status, to_char(a.started_at_local,'YYYY-MM-DD') as activity_date,
-           n.findings
-    from notifications n
-    left join activities a on a.id = n.activity_id
-    order by n.created_at desc limit 12`;
-
-  const [totals] = await sql<
-    { activities: number; notifications: number; sent: number }[]
-  >`
-    select (select count(*)::int from activities) as activities,
-           (select count(*)::int from notifications) as notifications,
-           (select count(*)::int from notifications where status='sent') as sent`;
 
   return {
     freshness: {

@@ -527,7 +527,7 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
   the only thing that decides whether food logging survives past week two. If it lapses, the
   retreat is save-immediately-edit-later — not abandoning the feature.
 
-### Day 8 — Deploy + polish
+### Day 8 — Deploy + polish ✅
 
 - Vercel deploy; re-register webhook against public URL; cron live
 
@@ -543,6 +543,34 @@ If the LLM later gets genuine multi-step autonomy in the proactive path (decidin
 - Error/empty states; README with architecture diagram telling the "chat can't do this" story
 - Test set: 8–10 chat questions + 3–4 simulated events with expected notification behavior
 - **Outcome:** live system that messages you after your next real run — that moment is your demo
+
+> **▸ Revised after Day 8 — deploying turned "polish" into a real pass, because the first
+> place it ran was a phone.**
+> The plan treated polish as error/empty states. On a live URL, opened on the device it's
+> actually used on, the gaps were interaction ones the desktop never showed:
+>
+> - **A tap did two things at once.** Every chart is a click-to-ask target; the data marks
+>   stopped `pointerdown` to suppress that, but chat opens on `click` — a separate event that
+>   still bubbled. So tapping a bar to read its tooltip *also* threw the chat open. The lesson
+>   is small and exact: pointer and click are different events with different propagation, and
+>   suppressing one is not suppressing the other.
+> - **Installability is invisible by default.** iOS Safari never prompts, and Chrome retired
+>   its banner, so a manifest + service worker earns the "installable" badge and nothing else.
+>   Added an explicit in-app Install control (native prompt on Android, the Share-sheet
+>   instruction on iOS) — the affordance the platforms stopped providing.
+> - **The first byte, not the bundle, was the wait.** `getDashboardData` fired ~a dozen
+>   independent queries in series, one Neon round-trip each on a `max: 1` connection. Issued
+>   together in one `Promise.all`, postgres.js pipelines them over the single connection and
+>   the batch costs roughly one round-trip — warm TTFB roughly halved. The client JS was never
+>   the problem; measuring said so before any code changed.
+> - **Empty states and safe areas.** A `.void-box` used in the markup but never styled collapsed
+>   two lines into one ("nothing loggedtap Ask"); the download menu on a chat table was sheared
+>   to its trigger's width by an `overflow-hidden` meant only for the user bubble; the header and
+>   composer needed safe-area insets once the standalone app ran under the notch.
+>
+> None of these are visible until the thing is deployed and held in a hand. That is the actual
+> argument for shipping early: the bugs that only exist in production are a category, not a
+> rounding error.
 
 ## 6. How We'll Build
 
@@ -570,6 +598,7 @@ Deliberately, in VS Code + Claude — every layer understood and owned, not gene
 - **API integration:** OAuth token lifecycle, rate-limit-aware backfill, ~~two-source reconciliation/dedup~~ provenance-based deduplication
 - **Scheduled + reactive workloads:** cron digests + webhook-triggered processing on serverless
 - **Product judgment:** notification-fatigue tuning — knowing when an AI system should stay quiet
+- **Frontend & performance:** mobile-first, installable PWA (manifest, maskable icons, an API-safe service worker) with hand-rolled SVG charts that draw gaps instead of interpolating them; profiled the initial load to the server, not the bundle, and roughly halved TTFB by pipelining a serial query chain into a single round-trip; touch-interaction and safe-area bugs caught only by opening the deployed app on a phone
 
 > **▸ Revised after Days 1–2 — what's actually claimable now.**
 > "Two-source reconciliation" describes work that didn't happen, because the duplicates it

@@ -91,6 +91,12 @@ export function middleware(req: NextRequest) {
 
 export const config = {
   // Static assets are excluded: they carry nothing private, and putting the
-  // check in front of every chunk request costs latency for no benefit.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // check in front of every chunk request costs latency for no benefit. The
+  // PWA shell — manifest, service worker and app icons — is excluded for the
+  // same reason and one more: the browser fetches them to decide the app is
+  // installable, sometimes without credentials, so a gated manifest would make
+  // "Add to Home Screen" silently unavailable.
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|icon-192.png|icon-512.png|icon-maskable-512.png|apple-icon.png).*)",
+  ],
 };
