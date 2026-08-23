@@ -1,28 +1,28 @@
 # RunNudge
 
-A proactive training-insights system over my own Strava + Garmin running data. It reacts to runs as they happen — ingesting, analyzing, and notifying — rather than waiting to be asked.
+A proactive training-insights system over my own Strava and Garmin running data. It reacts to runs as they happen (ingesting, analyzing, notifying) instead of waiting to be asked.
 
 See [docs/PLAN.md](docs/PLAN.md) for the full plan and rationale.
 
 ## Status
 
-**Live and deployed.** Strava ingestion (Day 1), Garmin metrics via a Python sidecar (Day 2), a deterministic insight engine with capability-gated rules (Day 3), and a webhook-driven pipeline where Claude judges whether findings warrant a notification (Day 4). Notifications arrive on Telegram with a weekly digest on cron (Day 5), and a dashboard plus AI SDK chat layer answer questions from live SQL (Day 6). Meals are logged conversationally — photo or text — through a propose-confirm-save flow where the model never states a total and never writes a row; weight and goal phases are dated state, and no trend is ever fitted across a phase boundary (Day 7). Deployed to Vercel behind a single-secret auth gate, with the webhook re-registered against the production URL and the cron live (Day 8). The dashboard is **mobile-first and installs as a PWA**; the whole page paints in one parallelized data pass.
+Live and deployed. Strava ingestion (Day 1), Garmin metrics via a Python sidecar (Day 2), a deterministic insight engine with capability-gated rules (Day 3), and a webhook-driven pipeline where Claude judges whether findings warrant a notification (Day 4). Notifications arrive on Telegram with a weekly digest on cron (Day 5), and a dashboard plus AI SDK chat layer answer questions from live SQL (Day 6). Meals are logged conversationally, by photo or text, through a propose-confirm-save flow where the model never states a total and never writes a row; weight and goal phases are dated state, and no trend is fitted across a phase boundary (Day 7). It runs on Vercel behind a single-secret auth gate, with the webhook re-registered against the production URL and the cron live (Day 8). The dashboard is mobile-first and installs as a PWA, and the whole page paints in one parallelized data pass.
 
 ## Screenshots
 
-The dashboard is an instrument panel: every number is queried or computed by the analysis engine, and absence is *drawn* rather than omitted — a hatched void for a zero week, a dashed break for an unmeasured gap, an explicit unlock condition for a rule that can't yet run.
+The dashboard is an instrument panel: every number is queried or computed by the analysis engine, and absence is drawn rather than omitted. A zero week is a hatched void, an unmeasured gap is a dashed break, and a rule that can't yet run shows the condition that would unlock it.
 
 ![The RunNudge dashboard](docs/media/dashboard-desktop.png)
 
-Every chart is click-to-ask: tapping a card opens the chat with a question about that chart already filled in — the moment chat stops being a search box you have to remember exists. Answers come from SQL run against your own database, and the query it ran is shown inline, so an answer you can't check is never one you have to trust blindly.
+Every chart is click-to-ask. Tapping a card opens the chat with a question about that chart already filled in, so chat stops being a search box you have to remember exists. Answers come from SQL run against your own database, and the query it ran is shown inline, so an answer you can't check is never one you have to trust blindly.
 
 ![Chat opened from a chart, with the seeded question and the SQL it ran](docs/media/chat-seeded.png)
 
-It is used mostly on a phone, so the phone layout is the primary one — and it installs to the home screen as a standalone app:
+It is used mostly on a phone, so the phone layout is the primary one, and it installs to the home screen as a standalone app:
 
 <img src="docs/media/dashboard-mobile.png" alt="RunNudge on a phone" width="340">
 
-> Regenerate these: `npm run dev` in one shell, `npm run shots` in another. The script drives headless Chrome over the DevTools Protocol, sets the auth cookie from `.env`, and writes the three images into `docs/media/`.
+> Regenerate these with `npm run dev` in one shell and `npm run shots` in another. The script drives headless Chrome over the DevTools Protocol, sets the auth cookie from `.env`, and writes the three images into `docs/media/`.
 
 ## Architecture
 
@@ -38,13 +38,13 @@ flowchart TB
     DB[("activities · daily_metrics<br/>body_log · goal_phases<br/>foods · meals · meal_items<br/>notifications · llm_calls")]
   end
 
-  subgraph engine["Deterministic engine — no model involved"]
+  subgraph engine["Deterministic engine, no model involved"]
     LOAD["Banister TRIMP load<br/>EWMA acute:chronic"]
     RULES["6 capability-gated rules<br/>each declares its preconditions"]
     FIND["Findings<br/>fired · quiet · ineligible · error"]
   end
 
-  subgraph judge["Judgment layer — the only place a model decides"]
+  subgraph judge["Judgment layer, the only place a model decides"]
     JU["Is this worth interrupting a person?<br/>Quotes numbers, never derives them"]
   end
 
@@ -72,7 +72,7 @@ flowchart TB
 **The load-bearing division is horizontal, not vertical.** Everything numeric is
 computed in SQL or in the engine. The model gets a finished report and does two
 jobs: decide whether it is worth interrupting someone, and write the sentence.
-It never derives a figure, and it is handed the *ineligible* findings too — so
+It never derives a figure, and it is handed the *ineligible* findings too, so
 it cannot phrase missing data as reassurance.
 
 ## Why the chat can't do this on its own
@@ -83,12 +83,12 @@ being precise about.
 
 **Chat is reactive; the product is not.** The whole point is the message that
 arrives *without being asked*, on a Tuesday, because a ratio moved. Nobody opens
-a chat window to ask whether anything is wrong — you ask when you already
-suspect it. A system that only answers questions can never tell you the thing
-you did not think to ask.
+a chat window to ask whether anything is wrong. You ask when you already
+suspect it, and a system that only answers questions can never tell you the
+thing you did not think to ask.
 
 **"Nothing to report" and "nothing recorded" are different sentences.** This
-athlete's watch data is intermittent by design — 11 nights of sleep in May and
+athlete's watch data is intermittent by design: 11 nights of sleep in May and
 June, nothing since. Asked "how's my recovery", a model over a database returns
 *no rows* and reports reassurance. The engine instead declares what each rule
 needs before it runs, so an unmeasured week comes back `ineligible` with its
@@ -96,15 +96,15 @@ unlock condition attached, and the dashboard draws the hole rather than omitting
 it. That distinction is a schema and a set of preconditions, not a prompt.
 
 **The same question must give the same answer twice.** An ACWR is a decision
-input; a number that drifts because it was re-derived by a language model is
+input, and a number that drifts because it was re-derived by a language model is
 worse than no number. Load, ratios, meal calories and weight trends are computed
 deterministically and stored, so the dashboard, the notification and the chat
 answer all quote one figure. Day 7 measured this directly: asked twice about the
-same dish, the model's *own* estimate of its composition drifted (carbs 18 → 19,
-fat 6 → 5.5) while the stored row held the total steady.
+same dish, the model's *own* estimate of its composition drifted (carbs 18 to 19,
+fat 6 to 5.5) while the stored row held the total steady.
 
 **Someone has to decide not to speak.** Most days, correctly, nothing is worth
-sending. That judgment — significance, not calculation — is the one thing here a
+sending. That judgment (significance, not calculation) is the one thing here a
 model does better than a threshold, and it is exactly one call in the pipeline.
 Every withheld notification is stored with its reasoning, so the decision to stay
 quiet is auditable rather than invisible.
@@ -115,13 +115,13 @@ shape you noticed on the dashboard, and it answers with the SQL shown.
 ## Stack
 
 - Next.js (App Router) + TypeScript, deployed on Vercel
-- Mobile-first, installable PWA — web manifest, maskable icons, and a service worker that never caches the API
+- Mobile-first, installable PWA: web manifest, maskable icons, and a service worker that never caches the API
 - Hand-rolled SVG charts (no charting library), so a gap in the data is drawn as a gap rather than interpolated across
 - Vercel AI SDK + AI Elements for the chat layer; Anthropic API for the judgment layer
 - Neon Postgres + Drizzle ORM
 - Strava REST API v3 (OAuth 2 + webhooks)
-- Meal totals computed in SQL from stored per-100g composition — never stored, never stated by the model
-- Python sidecar for Garmin Connect (unofficial API) — isolated; the app never imports it
+- Meal totals computed in SQL from stored per-100g composition, never stored and never stated by the model
+- Python sidecar for Garmin Connect (unofficial API), isolated so the app never imports it
 
 ## Setup
 
@@ -132,7 +132,7 @@ cp .env.example .env
 openssl rand -hex 24   # paste as ADMIN_TOKEN
 ```
 
-Fill in `DATABASE_URL` from Neon (use the **pooled** connection string — its host contains `-pooler`).
+Fill in `DATABASE_URL` from Neon. Use the pooled connection string, whose host contains `-pooler`.
 
 ### 2. Create a Strava API application
 
@@ -141,7 +141,7 @@ At <https://www.strava.com/settings/api>:
 - **Authorization Callback Domain:** `localhost` for local development
 - Copy the Client ID and Client Secret into `.env`
 
-The OAuth redirect URI is derived as `$APP_URL/api/strava/callback` — nothing to configure beyond the callback domain.
+The OAuth redirect URI is derived as `$APP_URL/api/strava/callback`, so there is nothing to configure beyond the callback domain.
 
 ### 3. Migrate
 
@@ -170,7 +170,7 @@ Progress is checkpointed to `sync_state` after every page, so a rate limit or a 
 ### 6. Garmin (optional)
 
 Garmin has no official consumer API, so this uses the community `garminconnect`
-library from an isolated Python sidecar. The Next.js app never imports it — the
+library from an isolated Python sidecar. The Next.js app never imports it; the
 two sides meet only at the `daily_metrics` table.
 
 ```bash
@@ -189,7 +189,7 @@ then:
 
 If the account has MFA, run it from a real terminal the first time so the code
 prompt can be answered. Tokens are then cached in `.garmin-tokens/` (gitignored)
-and later runs are unattended — which matters, because repeated password logins
+and later runs are unattended, which matters because repeated password logins
 are what gets a Garmin account rate-limited.
 
 ## Scripts
@@ -199,7 +199,7 @@ are what gets a Garmin account rate-limited.
 | `npm run dev`                               | Next.js dev server                           |
 | `npm run db:generate`                       | Generate a migration from `src/db/schema.ts` |
 | `npm run db:migrate`                        | Apply pending migrations                     |
-| `npm run db:studio`                         | Drizzle Studio — browse the data             |
+| `npm run db:studio`                         | Drizzle Studio, browse the data              |
 | `npm run backfill`                          | Pull Strava history into the DB              |
 | `npm run typecheck`                         | `tsc --noEmit`                               |
 | `npm test`                                  | Invariant tests for the analysis engine      |
@@ -211,13 +211,13 @@ are what gets a Garmin account rate-limited.
 | `npm run notify -- chat-id\|test\|pending`   | Telegram setup and delivery                  |
 | `npm run notify -- digest [--dry]`          | Build (and send) this week's digest          |
 | `.venv/bin/python scripts/garmin_sync.py`   | Pull Garmin daily metrics into the DB        |
-| `npm run eval`                              | Honesty regression set — 10 chat cases       |
+| `npm run eval`                              | Honesty regression set, 10 chat cases        |
 | `npm run eval -- https://app.example.com`   | The same set against a deployment            |
 | `npm run cost`                              | Recorded model spend vs the all-Opus default |
 | `npm run shots`                             | Regenerate the README screenshots (needs `npm run dev` running) |
 
 > `db:generate` prompts interactively when it can't tell a column rename from a
-> drop-and-add, so it needs a real terminal — it will crash under a piped shell.
+> drop-and-add, so it needs a real terminal; it will crash under a piped shell.
 
 ## Layout
 
@@ -249,6 +249,6 @@ drizzle/            generated SQL migrations
 
 **Every activity keeps its raw payload.** Normalized columns carry what the analysis engine needs; `activities.raw` keeps the untouched JSON, so adding a column later is a migration rather than a re-backfill.
 
-**Ingestion is idempotent.** The backfill and (later) webhook delivery share one upsert keyed on Strava's activity id — a duplicate webhook or a re-run backfill can't create a second row, and a renamed activity overwrites cleanly.
+**Ingestion is idempotent.** The backfill and (later) webhook delivery share one upsert keyed on Strava's activity id, so a duplicate webhook or a re-run backfill can't create a second row, and a renamed activity overwrites cleanly.
 
 **Local time is stored separately.** Strava's `start_date_local` is an ISO string with a misleading `Z`; the digits are wall-clock. It lands in a `timestamp without time zone` so "a Tuesday morning run" survives travel and server timezones.
