@@ -21,7 +21,8 @@
     "notify": "tsx --tsconfig tsconfig.json scripts/notify.ts",
     "cost": "tsx --tsconfig tsconfig.json scripts/cost.ts",
     "eval": "tsx --tsconfig tsconfig.json scripts/eval.ts",
-    "push-env": "bash scripts/push-env.sh"
+    "push-env": "bash scripts/push-env.sh",
+    "shots": "node scripts/shots.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.39",

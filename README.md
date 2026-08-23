@@ -6,8 +6,23 @@ See [docs/PLAN.md](docs/PLAN.md) for the full plan and rationale.
 
 ## Status
 
-**Day 7 — nutrition + body composition.** Strava ingestion (Day 1), Garmin metrics via a Python sidecar (Day 2), a deterministic insight engine with capability-gated rules (Day 3), and a webhook-driven pipeline where Claude judges whether findings warrant a notification (Day 4). Notifications arrive on Telegram with a weekly digest on cron (Day 5), and a dashboard plus AI SDK chat layer answer questions from live SQL (Day 6). Meals are logged conversationally — photo or text — through a propose-confirm-save flow where the model never states a total and never writes a row; weight and goal phases are dated state, and no trend is ever fitted across a phase boundary (Day 7).
+**Live and deployed.** Strava ingestion (Day 1), Garmin metrics via a Python sidecar (Day 2), a deterministic insight engine with capability-gated rules (Day 3), and a webhook-driven pipeline where Claude judges whether findings warrant a notification (Day 4). Notifications arrive on Telegram with a weekly digest on cron (Day 5), and a dashboard plus AI SDK chat layer answer questions from live SQL (Day 6). Meals are logged conversationally — photo or text — through a propose-confirm-save flow where the model never states a total and never writes a row; weight and goal phases are dated state, and no trend is ever fitted across a phase boundary (Day 7). Deployed to Vercel behind a single-secret auth gate, with the webhook re-registered against the production URL and the cron live (Day 8). The dashboard is **mobile-first and installs as a PWA**; the whole page paints in one parallelized data pass.
 
+## Screenshots
+
+The dashboard is an instrument panel: every number is queried or computed by the analysis engine, and absence is *drawn* rather than omitted — a hatched void for a zero week, a dashed break for an unmeasured gap, an explicit unlock condition for a rule that can't yet run.
+
+![The RunNudge dashboard](docs/media/dashboard-desktop.png)
+
+Every chart is click-to-ask: tapping a card opens the chat with a question about that chart already filled in — the moment chat stops being a search box you have to remember exists. Answers come from SQL run against your own database, and the query it ran is shown inline, so an answer you can't check is never one you have to trust blindly.
+
+![Chat opened from a chart, with the seeded question and the SQL it ran](docs/media/chat-seeded.png)
+
+It is used mostly on a phone, so the phone layout is the primary one — and it installs to the home screen as a standalone app:
+
+<img src="docs/media/dashboard-mobile.png" alt="RunNudge on a phone" width="340">
+
+> Regenerate these: `npm run dev` in one shell, `npm run shots` in another. The script drives headless Chrome over the DevTools Protocol, sets the auth cookie from `.env`, and writes the three images into `docs/media/`.
 
 ## Architecture
 
@@ -99,7 +114,9 @@ shape you noticed on the dashboard, and it answers with the SQL shown.
 
 ## Stack
 
-- Next.js (App Router) + TypeScript
+- Next.js (App Router) + TypeScript, deployed on Vercel
+- Mobile-first, installable PWA — web manifest, maskable icons, and a service worker that never caches the API
+- Hand-rolled SVG charts (no charting library), so a gap in the data is drawn as a gap rather than interpolated across
 - Vercel AI SDK + AI Elements for the chat layer; Anthropic API for the judgment layer
 - Neon Postgres + Drizzle ORM
 - Strava REST API v3 (OAuth 2 + webhooks)
@@ -197,6 +214,7 @@ are what gets a Garmin account rate-limited.
 | `npm run eval`                              | Honesty regression set — 10 chat cases       |
 | `npm run eval -- https://app.example.com`   | The same set against a deployment            |
 | `npm run cost`                              | Recorded model spend vs the all-Opus default |
+| `npm run shots`                             | Regenerate the README screenshots (needs `npm run dev` running) |
 
 > `db:generate` prompts interactively when it can't tell a column rename from a
 > drop-and-add, so it needs a real terminal — it will crash under a piped shell.
