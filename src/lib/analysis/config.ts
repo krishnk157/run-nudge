@@ -45,6 +45,22 @@ export interface AnalysisConfig {
   minRestingRecentNights: number;
   /** PREFERENCE: drift worth mentioning, in bpm. */
   restingHrDeltaBpm: number;
+
+  // --- aerobic dose ---------------------------------------------------
+  /**
+   * METHOD: fraction of max HR above which a session counts as aerobic work.
+   *
+   * 0.75 is the conventional boundary between "moving" and "training the
+   * aerobic system". It is a method constant rather than a preference because
+   * the whole measure is meaningless if it counts a walk.
+   */
+  aerobicHrFraction: number;
+  /** METHOD: below this share of sessions carrying HR, the week is unmeasured. */
+  minAerobicHrCoverage: number;
+  /** METHOD: a single week is not a dose; this many are needed to compare. */
+  minAerobicWeeks: number;
+  /** PREFERENCE: weekly change in aerobic minutes worth remarking on. */
+  aerobicChangeFraction: number;
 }
 
 export const DEFAULT_CONFIG: AnalysisConfig = {
@@ -65,4 +81,9 @@ export const DEFAULT_CONFIG: AnalysisConfig = {
   minRestingBaselineNights: 5,
   minRestingRecentNights: 3,
   restingHrDeltaBpm: 4,
+
+  aerobicHrFraction: 0.75,
+  minAerobicHrCoverage: 0.6,
+  minAerobicWeeks: 3,
+  aerobicChangeFraction: 0.3,
 };

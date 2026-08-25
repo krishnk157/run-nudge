@@ -120,7 +120,25 @@ export async function consistency(asOf: Date): Promise<Consistency> {
     }[]
   >`
     with a as (
-      select started_at_local::date as d from activities
+      /*
+       * DISTINCT date, not one row per activity.
+       *
+       * The athlete now finishes a lift with eleven minutes on the elliptical,
+       * and Garmin records that as a second activity: 21:09 lifting, 22:10
+       * elliptical. Counting rows made one evening in the gym read as two
+       * sessions, so "4 sessions in the last 7 days" described 2 training days
+       * and the weekly baseline was drifting toward double its true value
+       * while nothing about the training had changed.
+       *
+       * A session is a time the athlete trained. The longest-gap query below
+       * always counted it that way; this half of the same function did not,
+       * which is how the inconsistency survived until a habit made it plain.
+       *
+       * The load model is unaffected and deliberately so: two activities on one
+       * evening are two doses of work and their loads should sum. Frequency and
+       * volume are different questions and are counted differently.
+       */
+      select distinct started_at_local::date as d from activities
       where started_at_local::date <= ${iso}::date
     )
     select to_char(max(d),'YYYY-MM-DD') as last_date,
@@ -147,4 +165,83 @@ export async function consistency(asOf: Date): Promise<Consistency> {
     weeklyBaseline: (row?.s84 ?? 0) / 12,
     longestGapDays: gap?.longest ?? 0,
   };
+}
+
+/* ------------------------------------------------------------------ */
+
+export interface AerobicWeek {
+  weekStart: string;
+  minutes: number;
+  sessions: number;
+  /** Sessions in that week that carried heart rate at all. */
+  withHr: number;
+  /** Total sessions, including the ones with no HR to judge. */
+  total: number;
+  /** Which modalities contributed, for attribution. */
+  sports: string[];
+}
+
+/**
+ * Weekly minutes of genuinely aerobic work, across every modality.
+ *
+ * The athlete's stated goals are VO2max and pace, and until now nothing
+ * measured the work that serves them. The efficiency rule only sees runs with
+ * heart rate — five on file, none since July — so it is dormant and will stay
+ * dormant through an entire block of aerobic training. Meanwhile eleven
+ * minutes on an elliptical at 90% of max HR is exactly the stimulus the goal
+ * asks for, and the system could not see it.
+ *
+ * Heart rate rather than sport type is the discriminator, deliberately. It is
+ * the only quantity every modality shares (the same reason the load model uses
+ * it), and it is the only way a hard badminton game counts and an easy jog
+ * does not. Asking "was this a cardio session?" by looking at the label gets
+ * both wrong.
+ *
+ * `withHr` and `total` are returned separately because a week where the watch
+ * was left at home is not a week of no aerobic work. The caller decides
+ * whether coverage is good enough to make a claim; this function only reports.
+ */
+export async function aerobicWeeks(
+  asOf: Date,
+  hrThreshold: number,
+  weeks = 12,
+): Promise<AerobicWeek[]> {
+  const iso = asOf.toISOString().slice(0, 10);
+  const rows = await sql<
+    {
+      week: string;
+      minutes: number;
+      sessions: number;
+      with_hr: number;
+      total: number;
+      sports: string[];
+    }[]
+  >`
+    select
+      to_char(date_trunc('week', started_at_local), 'YYYY-MM-DD') as week,
+      coalesce(round(sum(moving_time_s) filter (
+        where has_heartrate and average_heartrate >= ${hrThreshold}
+      ) / 60.0), 0)::int as minutes,
+      count(*) filter (
+        where has_heartrate and average_heartrate >= ${hrThreshold}
+      )::int as sessions,
+      count(*) filter (where has_heartrate and average_heartrate is not null)::int as with_hr,
+      count(*)::int as total,
+      coalesce(array_agg(distinct sport_type) filter (
+        where has_heartrate and average_heartrate >= ${hrThreshold}
+      ), '{}') as sports
+    from activities
+    where started_at_local::date <= ${iso}::date
+      and started_at_local::date > (${iso}::date - ${weeks * 7}::int)
+    group by 1
+    order by 1`;
+
+  return rows.map((r) => ({
+    weekStart: r.week,
+    minutes: r.minutes,
+    sessions: r.sessions,
+    withHr: r.with_hr,
+    total: r.total,
+    sports: r.sports ?? [],
+  }));
 }

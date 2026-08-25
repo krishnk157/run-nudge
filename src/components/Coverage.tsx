@@ -20,6 +20,7 @@ const RULE_NAMES: Record<string, string> = {
   resting_hr_drift: "Resting heart rate drift",
   strength_progression: "Strength progression",
   phase_drift: "Weight vs. goal phase",
+  aerobic_dose: "Aerobic dose",
 };
 
 export function Coverage({ findings }: { findings: Finding[] }) {
