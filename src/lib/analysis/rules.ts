@@ -8,6 +8,7 @@ import {
   type ActivityLoad,
 } from "./load";
 import {
+  aerobicWeeks,
   consistency,
   efficiencySeries,
   gapBefore,
@@ -401,6 +402,177 @@ export interface RegisteredRule {
   run: Rule;
 }
 
+
+/**
+ * Weekly aerobic minutes, and whether they are going anywhere.
+ *
+ * The athlete wants VO2max and pace to improve. Every other rule here either
+ * measures strain (ACWR), frequency (consistency) or a response to training
+ * (efficiency, resting HR) — none of them measure the *dose* of the specific
+ * work that moves those two numbers. That was a hole rather than a decision,
+ * and it went unnoticed because the athlete's aerobic work used to be runs,
+ * which the efficiency rule happened to cover.
+ *
+ * It stopped being covered the moment the aerobic work moved to a machine.
+ * Eleven minutes on an elliptical at 90% of max heart rate is a real stimulus
+ * that the efficiency rule cannot see, because that rule needs pace, and a
+ * machine reports none.
+ *
+ * What this rule will not do is prescribe. It reports minutes and the
+ * direction they are moving, with the modalities that produced them. There is
+ * no target here, because the system holds no aerobic target and inventing one
+ * to measure against would be training advice.
+ */
+export const aerobicDoseRule: Rule = async (ctx) => {
+  const cfg = ctx.config;
+  const threshold = Math.round(ctx.anchors.hrMax * cfg.aerobicHrFraction);
+  const weeks = await aerobicWeeks(ctx.asOf, threshold, 12);
+
+  /*
+   * The current week is excluded from the *comparison* because it is partly
+   * unlived — on a Monday it will always look like a collapse against a
+   * finished week. It is not excluded from the *statement*, and that
+   * distinction was learned the hard way: the first version reported "aerobic
+   * minutes down 66%" on the exact day the athlete had started a new cardio
+   * habit, because the three complete weeks behind it were the tail of a
+   * stopped running block and the 22 minutes already banked this week sat
+   * outside the window.
+   *
+   * Both facts were true. Only one of them was the news.
+   */
+  const complete = weeks.slice(0, -1);
+  const current = weeks.at(-1);
+
+  const base = {
+    hrThreshold: threshold,
+    hrMaxSource: ctx.anchors.hrMaxSource,
+    weeksOnFile: complete.length,
+  };
+
+  if (ctx.anchors.hrMaxSource === "assumed") {
+    // Every minute counted here depends on where the threshold sits, and the
+    // threshold is a fraction of max HR. Against an assumed maximum this rule
+    // would be measuring a guess and reporting it as a dose.
+    return {
+      rule: "aerobic_dose",
+      status: "ineligible",
+      data: base,
+      eligibility: needs(
+        "max heart rate has never been observed, so an aerobic threshold would be a fraction of a guess — needs one hard session recorded with heart rate",
+        0,
+        1,
+      ),
+    };
+  }
+
+  if (complete.length < cfg.minAerobicWeeks) {
+    return {
+      rule: "aerobic_dose",
+      status: "ineligible",
+      data: base,
+      eligibility: needs(
+        `needs ${cfg.minAerobicWeeks} complete weeks of training to compare aerobic minutes against`,
+        complete.length,
+        cfg.minAerobicWeeks,
+      ),
+    };
+  }
+
+  const recent = complete.slice(-cfg.minAerobicWeeks);
+  const covered = recent.reduce((a, w) => a + w.withHr, 0);
+  const totalSessions = recent.reduce((a, w) => a + w.total, 0);
+  const coverage = totalSessions === 0 ? 0 : covered / totalSessions;
+
+  if (coverage < cfg.minAerobicHrCoverage) {
+    // Sessions without heart rate are not zero-intensity sessions. Averaging
+    // them in as zero would report a training block as a lay-off.
+    return {
+      rule: "aerobic_dose",
+      status: "ineligible",
+      data: { ...base, coverage: round(coverage, 2), sessionsWithHr: covered, sessions: totalSessions },
+      eligibility: needs(
+        `only ${Math.round(coverage * 100)}% of recent sessions carry heart rate — the rest can't be scored, and counting them as easy would understate the work`,
+        covered,
+        Math.ceil(totalSessions * cfg.minAerobicHrCoverage),
+      ),
+    };
+  }
+
+  const minutes = recent.map((w) => w.minutes);
+  const avg = minutes.reduce((a, b) => a + b, 0) / minutes.length;
+  const earlier = complete.slice(0, -cfg.minAerobicWeeks);
+  const priorAvg = earlier.length
+    ? earlier.reduce((a, w) => a + w.minutes, 0) / earlier.length
+    : null;
+
+  const sports = [...new Set(recent.flatMap((w) => w.sports))].sort();
+  const data = {
+    ...base,
+    weeklyMinutes: minutes,
+    recentAvgMinutes: round(avg),
+    priorAvgMinutes: priorAvg == null ? null : round(priorAvg),
+    coverage: round(coverage, 2),
+    modalities: sports,
+    currentWeekMinutes: current?.minutes ?? 0,
+    currentWeekPartial: true,
+  };
+
+  if (avg === 0) {
+    // Distinct from ineligible: the watch was worn, the sessions were scored,
+    // and none of them were aerobic. That is a finding, not a data gap.
+    return {
+      rule: "aerobic_dose",
+      status: "fired",
+      severity: "info",
+      statement:
+        `No aerobic minutes in the last ${cfg.minAerobicWeeks} weeks — no session ` +
+        `averaged above ${threshold} bpm, though heart rate was recorded for ` +
+        `${Math.round(coverage * 100)}% of them.`,
+      data,
+      eligibility: ok(),
+    };
+  }
+
+  const change = priorAvg && priorAvg > 0 ? (avg - priorAvg) / priorAvg : null;
+  const moved = change != null && Math.abs(change) >= cfg.aerobicChangeFraction;
+
+  if (!moved) {
+    return { rule: "aerobic_dose", status: "quiet", data, eligibility: ok() };
+  }
+
+  const thisWeek = current?.minutes ?? 0;
+  const thisWeekSports = [...new Set(current?.sports ?? [])].sort();
+  const newModality = thisWeekSports.filter((s) => !sports.includes(s));
+
+  return {
+    rule: "aerobic_dose",
+    status: "fired",
+    severity: "info",
+    statement:
+      `Aerobic minutes ${change! > 0 ? "up" : "down"} ` +
+      `${Math.abs(Math.round(change! * 100))}%: ${round(avg)} min/week over the ` +
+      `last ${cfg.minAerobicWeeks} complete weeks against ${round(priorAvg!)} ` +
+      `before, above ${threshold} bpm, from ${sports.join(" and ") || "no modality"}.` +
+      (thisWeek > 0
+        ? ` This week so far: ${thisWeek} min` +
+          (thisWeekSports.length ? ` from ${thisWeekSports.join(" and ")}` : "") +
+          (newModality.length
+            ? `, which is new — ${newModality.join(" and ")} does not appear in the weeks above`
+            : "") +
+          `.`
+        : ""),
+    data: {
+      ...data,
+      changeFraction: round(change!, 2),
+      currentWeekSports: thisWeekSports,
+      currentWeekNewModalities: newModality,
+    },
+    eligibility: ok(),
+  };
+};
+
+/* ------------------------------------------------------------------ */
+
 /**
  * Weight moving against the declared goal.
  *
@@ -486,6 +658,7 @@ export const RULES: RegisteredRule[] = [
   { name: "resting_hr_drift", run: restingHrRule },
   { name: "strength_progression", run: strengthRule },
   { name: "phase_drift", run: phaseDriftRule },
+  { name: "aerobic_dose", run: aerobicDoseRule },
 ];
 
 export async function loadContext(
