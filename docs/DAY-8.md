@@ -166,6 +166,59 @@ behaviour this whole system is built to protect.
 
 ---
 
+## 5b. The outage that arrived on its own
+
+Two days after deploy, an Anthropic key expired. Two real workouts came in
+while it was dead, and both webhook events recorded exactly what happened:
+
+```
+08-24 16:12  create 19880077712  failed  401 "API key is invalid."
+08-24 16:23  create 19880240401  failed  401 "API key is invalid."
+```
+
+The pipeline degraded precisely as designed. Ingestion had already succeeded,
+so the activities showed up on the dashboard; only the judgment was missing.
+
+**And nothing said a word.** The evidence was perfect — status, timestamp, exact
+error — and nothing read it. For a system whose entire job is deciding when to
+speak, silence is the one failure mode indistinguishable from working
+correctly. The athlete noticed the way anyone would: they looked, saw their
+workout, and wondered where the verdict was.
+
+Three things came out of it.
+
+**Failures are drawn on the dashboard**, above everything else, with the error
+and the fix. The same rule the rest of the page already followed, applied one
+level up: absence is drawn, never omitted.
+
+**`npm run retry`** reprocesses failed events. It did not exist, so recovery
+was manual despite the evidence being complete. Replay is safe for the database
+because ingestion was always keyed on Strava's activity id.
+
+It is *not* automatically safe for the athlete, which the first run proved by
+sending two Telegram messages about workouts from June and July — three
+long-dead events from Day 4 testing were still at `failed`, and the judge
+assessed them correctly. "First session in 28 days" is a fine notification about
+a run seven weeks ago. Replay now defaults to a two-day window. **A
+notification's value is time-bound in a way its correctness is not.**
+
+**Telegram now carries operational alerts**, on a channel that shares no
+dependency with the model API, so it survives exactly this outage. Throttled by
+*cause* rather than by time: five activities failing on one dead key is one
+problem and one message, while a genuinely different error gets through
+immediately even inside the window. Verified:
+
+```
+1st failure (dead key, activity A):            sent
+2nd failure, same cause, different activity:   throttled
+3rd failure, different cause:                  sent
+```
+
+An alert you learn to ignore is worse than no alert, and the way alerts earn
+that is by repeating themselves.
+
+---
+
 ## 6. Verified
 
 Production dashboard renders real data · every private route 401s without the
@@ -185,4 +238,5 @@ production** · 106 unit tests, lint, types, build clean
 - A notification actually arriving on Telegram *from production* (the last real
   send was from localhost on Day 5)
 - Mobile layout on a real phone
-- Behaviour when Strava rate-limits, or when the Anthropic key runs out of credit
+- Behaviour when Strava rate-limits, or when the Anthropic key runs out of
+  credit (an *expired* key is now covered, and was covered the hard way)

@@ -965,3 +965,20 @@ body {
   animation: caret 1s steps(2, start) infinite;
 }
 .md.streaming::after { content: none; }
+
+/* an unresolved pipeline failure — the one thing that outranks the readouts */
+.alarm {
+  display: grid; grid-template-columns: 74px 1fr; gap: 12px;
+  margin-top: 22px; padding: 13px 15px;
+  border: 1px solid color-mix(in srgb, var(--crit) 45%, var(--rule));
+  background: color-mix(in srgb, var(--crit) 7%, transparent);
+  font-size: 13.5px; line-height: 1.5;
+}
+.alarm .lbl { color: var(--crit); }
+.alarm b { color: var(--crit); font-weight: 600; }
+.alarm-detail {
+  font-family: var(--font-data); font-size: 11px; color: var(--ink-2);
+  margin-top: 5px; word-break: break-word;
+}
+.alarm code { font-family: var(--font-data); color: var(--brand); }
+@media (max-width: 760px) { .alarm { grid-template-columns: 1fr; gap: 4px; } }
