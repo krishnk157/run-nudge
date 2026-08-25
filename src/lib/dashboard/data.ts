@@ -203,14 +203,18 @@ export async function getDashboardData(): Promise<DashboardData> {
       from activities`,
     sql<
       {
-        week_sessions: number;
         week_hours: number;
         last_date: string | null;
         days_since: number | null;
       }[]
     >`
       select
-        count(*) filter (where started_at_local >= current_date - 7)::int as week_sessions,
+        -- Kept for hours only. week_sessions used to be counted here too,
+        -- and that was a second definition of "session" living outside the
+        -- engine: after the engine started counting training days rather than
+        -- activities, this query still said 4 while every rule said 2. Same
+        -- mistake as the Day 6 suffer_score bug, one field along — the fix is
+        -- the same, read the engine's own finding.
         coalesce(round((sum(moving_time_s) filter (where started_at_local >= current_date - 7)/3600.0)::numeric,1),0)::float as week_hours,
         to_char(max(started_at_local),'YYYY-MM-DD') as last_date,
         (current_date - max(started_at_local)::date)::int as days_since
@@ -314,6 +318,9 @@ export async function getDashboardData(): Promise<DashboardData> {
   const [state] = stateRows;
   const [totals] = totalsRows;
 
+  const consistencyData = report.findings.find((f) => f.rule === "consistency")
+    ?.data as Record<string, unknown> | undefined;
+
   const acwrFinding = report.findings.find(
     (f) => f.rule === "acute_chronic_ratio",
   );
@@ -347,7 +354,9 @@ export async function getDashboardData(): Promise<DashboardData> {
     },
     state: {
       weekLoad: Math.round(loadByWeek.get(weekly.at(-1)?.week ?? "") ?? 0),
-      weekSessions: state?.week_sessions ?? 0,
+      // From the consistency rule, so the strip and the notifications can
+      // never disagree about how often this athlete trained.
+      weekSessions: (consistencyData?.sessionsLast7 as number | undefined) ?? 0,
       daysSinceLast: state?.days_since ?? null,
       lastActivityDate: state?.last_date ?? null,
       acwr:
