@@ -3,6 +3,7 @@ import { notifications, webhookEvents } from "@/db/schema";
 import { computeInsights } from "@/lib/analysis/engine";
 import { deleteActivity, upsertActivities } from "@/lib/ingest/activities";
 import { judgeInsights } from "@/lib/llm/judge";
+import { alertPipelineFailure } from "@/lib/notify/alert";
 import {
   defaultNotifier,
   deliverPending,
@@ -65,6 +66,24 @@ export async function processEvent(
         processedAt: new Date(),
       })
       .where(eq(webhookEvents.id, logged.id));
+
+    /*
+     * Tell the athlete the pipeline broke.
+     *
+     * Recording the failure was never the problem — the evidence was perfect
+     * when a key expired and took a day of judgments with it. Nothing read it.
+     * The alert goes out on a channel that shares no dependency with the model
+     * API, so it survives exactly the outage that made this necessary, and it
+     * is awaited rather than fired and forgotten because on a serverless
+     * function the process may not outlive the response.
+     */
+    if (r.status === "failed") {
+      await alertPipelineFailure({
+        objectId: event.object_id,
+        aspectType: event.aspect_type,
+        error: r.detail,
+      });
+    }
     return r;
   };
 
