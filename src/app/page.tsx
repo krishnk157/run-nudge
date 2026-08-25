@@ -60,7 +60,7 @@ export default async function Home() {
 
   const {
     state, freshness, findings, weekly, efficiency, feed, totals, nutrition,
-    pace, vo2max, calendar, today,
+    pace, vo2max, calendar, today, health,
   } = data;
   const bestPace = pace.length
     ? pace.reduce((a, b) => (b.secPerKm < a.secPerKm ? b : a))
@@ -87,6 +87,31 @@ export default async function Home() {
       </header>
 
       <main className="wrap">
+        {/*
+          A failed pipeline run is the one silence this dashboard could not
+          distinguish from a quiet week. It goes above everything else because
+          it invalidates what follows: the activities are real and the
+          judgments about them are missing.
+        */}
+        {health.failedEvents > 0 && (
+          <div className="alarm" role="status">
+            <div className="lbl">Pipeline</div>
+            <div>
+              <b>
+                {health.failedEvents} event
+                {health.failedEvents === 1 ? "" : "s"} failed to process
+              </b>
+              {health.lastFailureAt && ` · most recent ${health.lastFailureAt}`}
+              <div className="alarm-detail">
+                {(health.lastError ?? "").slice(0, 180)}
+              </div>
+              <div className="alarm-detail">
+                Ingested but never judged. Fix the cause, then{" "}
+                <code>npm run retry</code>.
+              </div>
+            </div>
+          </div>
+        )}
         <section className="sec">
           <div className="sec-head">
             <span className="lbl">State of training</span>

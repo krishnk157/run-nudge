@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 /**
  * An explicit "Install" control in the header.
@@ -39,30 +39,53 @@ export function InstallButton() {
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(
     null,
   );
-  const [isIOS, setIsIOS] = useState(false);
-  const [installed, setInstalled] = useState(true); // assume yes until mounted
   const [showHint, setShowHint] = useState(false);
 
+  /*
+   * Both of these are facts about the environment, not state this component
+   * owns, so they are read during render rather than assigned in an effect.
+   * Writing them with setState in an effect is what react-hooks/purity flags,
+   * and the rule is right here: an effect that immediately sets state renders
+   * the wrong thing once and then corrects it.
+   *
+   * The server snapshot says "installed" so the button never flashes into view
+   * during hydration and then disappear for someone who already has the app.
+   */
+  const installed = useSyncExternalStore(
+    (onChange) => {
+      const mq = window.matchMedia("(display-mode: standalone)");
+      mq.addEventListener("change", onChange);
+      window.addEventListener("appinstalled", onChange);
+      return () => {
+        mq.removeEventListener("change", onChange);
+        window.removeEventListener("appinstalled", onChange);
+      };
+    },
+    () => isStandalone(),
+    () => true,
+  );
+
+  const isIOS = useSyncExternalStore(
+    () => () => {},
+    () => {
+      const ua = navigator.userAgent;
+      // iPadOS 13+ reports as a Mac, but it is the only touch Mac.
+      return (
+        /iphone|ipod|ipad/i.test(ua) ||
+        (navigator.maxTouchPoints > 1 && /macintosh/i.test(ua))
+      );
+    },
+    () => false,
+  );
+
   useEffect(() => {
-    if (isStandalone()) {
-      setInstalled(true);
-      return;
-    }
-    setInstalled(false);
-
-    const ua = navigator.userAgent;
-    // iPadOS 13+ reports as a Mac, but it is the only touch Mac, so gate on that.
-    const iOS =
-      /iphone|ipod|ipad/i.test(ua) ||
-      (navigator.maxTouchPoints > 1 && /macintosh/i.test(ua));
-    setIsIOS(iOS);
-
     const onPrompt = (e: Event) => {
       e.preventDefault();
       setDeferred(e as BeforeInstallPromptEvent);
     };
     const onInstalled = () => {
-      setInstalled(true);
+      // `installed` is now derived from the same event via useSyncExternalStore;
+      // this only clears the UI that was offering the install.
       setDeferred(null);
       setShowHint(false);
     };

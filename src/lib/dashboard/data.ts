@@ -78,6 +78,24 @@ export interface FeedEntry {
 export interface DashboardData {
   /** The athlete's calendar date, so charts never read the browser's clock. */
   today: string;
+  /**
+   * Pipeline failures the athlete has no other way to see.
+   *
+   * An expired API key took the judge down for a day. Two real workouts arrived,
+   * both events were recorded as `failed` with the exact 401 that caused it, and
+   * the system carried on looking completely healthy — the dashboard showed the
+   * activities, because ingestion had worked, and simply had no judgment to
+   * show. Silence from a system whose entire job is deciding when to speak is
+   * indistinguishable from "nothing worth saying".
+   *
+   * The same rule as everywhere else in this dashboard, applied one level up:
+   * absence is drawn, never omitted.
+   */
+  health: {
+    failedEvents: number;
+    lastFailureAt: string | null;
+    lastError: string | null;
+  };
   freshness: { lastSyncedAt: string | null; daysSinceSync: number | null };
   state: {
     weekLoad: number;
@@ -168,6 +186,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     eff,
     feedRows,
     totalsRows,
+    healthRows,
   ] = await Promise.all([
     athleteToday(),
     Promise.all([
@@ -281,6 +300,14 @@ export async function getDashboardData(): Promise<DashboardData> {
       select (select count(*)::int from activities) as activities,
              (select count(*)::int from notifications) as notifications,
              (select count(*)::int from notifications where status='sent') as sent`,
+    // Only unresolved failures: a retried event keeps its row and its error as
+    // a record of what happened, but it is no longer something to act on.
+    sql<{ n: number; at: string | null; err: string | null }[]>`
+      select count(*)::int as n,
+             to_char(max(received_at), 'YYYY-MM-DD HH24:MI') as at,
+             (array_agg(error order by received_at desc))[1] as err
+      from webhook_events
+      where status = 'failed'`,
   ]);
 
   const [fresh] = freshRows;
@@ -370,6 +397,11 @@ export async function getDashboardData(): Promise<DashboardData> {
       chips: chipsFor(r.findings),
     })),
     today,
+    health: {
+      failedEvents: healthRows[0]?.n ?? 0,
+      lastFailureAt: healthRows[0]?.at ?? null,
+      lastError: healthRows[0]?.err ?? null,
+    },
     totals: totals ?? { activities: 0, notifications: 0, sent: 0 },
     nutrition: {
       protein,
